@@ -185,7 +185,7 @@ export async function load({ env, me }) {
     new Date(Date.now() - PENDING_AUTO_ACCEPT).toISOString()).run();
 
   const [fellows, events, photos] = await Promise.all([
-    rows(q(env, 'SELECT id, name, email, phone, photo_url, role FROM bb_fellows ORDER BY name')),
+    rows(q(env, 'SELECT id, name, email, phone, photo_url, host_org, city, role FROM bb_fellows ORDER BY name')),
     loadEvents(env, me.id),
     loadPhotos(env, me.id),
   ]);

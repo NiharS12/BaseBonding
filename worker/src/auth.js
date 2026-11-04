@@ -4,7 +4,7 @@
 //  DEV TEAM: this is the ONE function to replace when merging into Pulse.
 //  Pulse already sends `Authorization: Bearer <session token>` on every API.call();
 //  swap the body of resolveFellow() for Pulse's own session → fellow lookup and return
-//  `{ id, name, email, phone, photo_url, role }` (ids must match the fellow ids used in
+//  `{ id, name, email, phone, photo_url, host_org, city, role }` (ids must match the fellow ids used in
 //  the bb_* tables; if Pulse's roster lives elsewhere, point bb_fellows at it or keep it
 //  in sync). Everything else in this worker only ever calls resolveFellow().
 // ===================================================================================
@@ -28,7 +28,7 @@ export async function resolveFellow(request, env) {
   // minted by Pulse). It is intentionally unused by the dev scheme above.
 
   if (!fellowId) throw new ApiError('signed_out', 401);
-  const me = await env.DB.prepare('SELECT id, name, email, phone, photo_url, role FROM bb_fellows WHERE id = ?1')
+  const me = await env.DB.prepare('SELECT id, name, email, phone, photo_url, host_org, city, role FROM bb_fellows WHERE id = ?1')
     .bind(fellowId)
     .first();
   if (!me) throw new ApiError('signed_out', 401);

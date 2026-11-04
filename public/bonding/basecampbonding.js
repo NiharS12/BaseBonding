@@ -100,6 +100,7 @@
   const plural = (n, w, ws) => n + " " + (n === 1 ? w : ws || w + "s");
   const slugify = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const toLocalInput = t => { const d = new Date(t); const p = n => String(n).padStart(2, "0"); return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes()); };
+  const safeImg = u => (u && /^(data:image\/(png|jpe?g|webp|gif);|blob:)/i.test(u)) ? u : safeUrl(u); // same rule as CorpsConnect
   const safeUrl = u => { if (!u) return null; try { const x = new URL(u, location.href); return x.protocol === "https:" || x.protocol === "http:" ? x.href : null; } catch (e) { return null; } };
   const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
 
@@ -223,6 +224,8 @@
     const api = opts.api;
     if (!api) throw new Error("BasecampBonding.mount needs an api object");
     const qrBase = opts.qrBase || (location.origin + location.pathname);
+    // opts.openConnect(fellow): the host page takes the fellow to their card on the Connect tab. Without it, a plain link.
+    const openConnect = typeof opts.openConnect === "function" ? opts.openConnect : f => window.open(opts.connectUrl || "https://basecamppulse.com/", "_blank", "noopener");
     container.textContent = ""; container.classList.add("bb"); // the container is the themed root; sheets and the lightbox hang off it
     const ui = sheetHost(container);
     const S = { data: null, now: Date.now(), weekStart: startOfWeek(Date.now()), day: null, tab: "upcoming", ptab: "cohort", album: null, taggedOnly: false, error: null, open: null };
@@ -403,22 +406,25 @@
       ]);
     }
     function tab(label, n, on, click) { return h("button", { class: "bb-tab", role: "tab", type: "button", "aria-selected": on, onclick: click }, label, h("span", { class: "bb-tab-count", text: n })); }
-    function avatar(f, size, ok) {
-      const el = h("span", { class: "bb-av" + (size ? " bb-av-" + size : ""), "data-ok": !!ok, title: f.name, "aria-hidden": "true" });
-      const src = f.photo_url && safeUrl(f.photo_url);
+    function avatar(f, size, ok, click) {
+      const el = h(click ? "button" : "span", { class: "bb-av" + (size ? " bb-av-" + size : "") + (click ? " bb-avbtn" : ""), type: click ? "button" : null, "data-ok": !!ok, title: f.name + (ok ? " · confirmed there" : ""), "aria-label": click ? f.name : null, "aria-hidden": click ? null : "true",
+        onclick: click ? ev => { ev.stopPropagation(); openFellow(f.id); } : null });
+      const src = f.photo_url && safeImg(f.photo_url);
       if (src) el.appendChild(h("img", { src, alt: "", loading: "lazy" })); else el.textContent = initials(f.name);
       return el;
     }
+    // A name as a button: tap it anywhere to see who that is.
+    const nameBtn = (id, text, cls) => h("button", { class: "bb-namebtn" + (cls ? " " + cls : ""), type: "button", text: text || name(id), onclick: ev => { ev.stopPropagation(); openFellow(id); } });
     function avatars(ids, max, okIds) {
       ids = ids.filter((x, i, a) => a.indexOf(x) === i);
       const shown = ids.slice(0, max || 4), more = ids.length - shown.length;
-      return h("span", { class: "bb-avs" }, shown.map(id => avatar(fellow(id), null, okIds && okIds.indexOf(id) >= 0)), more > 0 ? h("span", { class: "bb-av bb-av-more", text: "+" + more }) : null);
+      return h("span", { class: "bb-avs" }, shown.map(id => avatar(fellow(id), null, okIds && okIds.indexOf(id) >= 0, true)), more > 0 ? h("span", { class: "bb-av bb-av-more", text: "+" + more, title: ids.slice(max || 4).map(name).join(", ") }) : null);
     }
     function eventCard(e) {
       const going = e.rsvps.filter(r => r.status === "going").map(r => r.fellow_id), maybe = e.rsvps.filter(r => r.status === "maybe").length;
       const people = going.concat(e.invites).filter(id => id !== e.host_id);
       const conf = confirmed(e).map(a => a.fellow_id);
-      return h("button", { class: "bb-event", type: "button", "data-cancelled": e.cancelled, onclick: () => openEvent(e.id) },
+      return h("div", { class: "bb-event", role: "button", tabindex: "0", "data-cancelled": e.cancelled, onclick: () => openEvent(e.id), onkeydown: ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openEvent(e.id); } } },
         h("span", { class: "bb-when", "data-live": isLive(e), text: e.cancelled ? "Cancelled · " + fmtWhen(e, S.now) : fmtWhen(e, S.now) }),
         h("h3", { text: e.title }),
         h("span", { class: "bb-meta" }, e.location ? h("span", {}, icon("pin"), e.location) : null, h("span", {}, icon("user"), "Hosted by " + first(e.host_id))),
@@ -452,8 +458,8 @@
     function commentsBlock(t, list) {
       const live = list.filter(c => !c.deleted);
       const wrap = h("div", { class: "bb-section" }, h("p", { class: "bb-label", text: "Comments · " + live.length }),
-        h("div", { class: "bb-comments" }, live.map(c => h("div", { class: "bb-comment" }, avatar(fellow(c.fellow_id)),
-          h("div", { class: "bb-comment-body" }, h("p", {}, h("b", { text: first(c.fellow_id) + " " }), c.text),
+        h("div", { class: "bb-comments" }, live.map(c => h("div", { class: "bb-comment" }, avatar(fellow(c.fellow_id), null, false, true),
+          h("div", { class: "bb-comment-body" }, h("p", {}, nameBtn(c.fellow_id, first(c.fellow_id), "bb-namebtn-b"), " ", c.text),
             h("div", { class: "bb-comment-meta" }, h("span", { text: ago(c.created_at, S.now) }),
               h("button", { type: "button", "aria-pressed": c.reactions.some(r => r.fellow_id === me().id), text: "❤️" + (c.reactions.length ? " " + c.reactions.length : ""), onclick: () => toggleReaction({ type: "comment", id: c.id }, "❤️", !c.reactions.some(r => r.fellow_id === me().id)) }),
               c.fellow_id === me().id ? h("button", { type: "button", text: "Delete", onclick: () => { c.deleted = true; render(); act(api.deleteComment(c.id)); } }) : null))))),
@@ -481,11 +487,12 @@
       const content = h("div", { class: "bb-sheet-body" },
         h("div", { class: "bb-intro" }, h("span", { class: "bb-when", "data-live": isLive(e), text: (e.cancelled ? "Cancelled · " : "") + fmtWhen(e, S.now) }), h("h2", { text: e.title }),
           h("div", { class: "bb-meta" }, e.location ? h("span", {}, icon("pin"), locUrl ? h("a", { href: locUrl, target: "_blank", rel: "noopener", text: e.location }) : e.location) : null,
-            h("span", {}, avatar(fellow(e.host_id), "sm"), "Hosted by " + name(e.host_id)))),
+            h("span", {}, avatar(fellow(e.host_id), "sm", false, true), "Hosted by ", nameBtn(e.host_id)))),
         e.description ? h("p", { class: "bb-desc", text: e.description }) : null,
         !e.cancelled && e.ends_at >= S.now ? h("div", { class: "bb-rsvp" },
           ["going", "maybe", "no"].map(s => h("button", { class: "bb-btn", type: "button", "aria-pressed": r === s, onclick: () => setRsvp(e, r === s ? "none" : s) }, s === "going" ? [icon("check"), "Going"] : s === "maybe" ? "Maybe" : "Can't"))) : null,
-        h("div", { class: "bb-section" }, h("p", { class: "bb-label", text: e.ends_at < S.now ? "Who was invited" : "Going with" }),
+        h("div", { class: "bb-section" }, h("div", { class: "bb-section-head" }, h("p", { class: "bb-label", text: e.ends_at < S.now ? "Who was invited" : "Going with" }),
+            h("button", { class: "bb-btn bb-btn-ghost bb-btn-small", type: "button", onclick: () => openAttendees(e.id) }, icon("users"), "Show attendees")),
           h("div", { class: "bb-actions" }, people.length ? avatars(people, 8, conf.map(x => x.fellow_id)) : h("span", { class: "bb-hint", text: "Nobody tagged yet." }),
             h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => pickFellows("Tag fellows", e.invites, ids => { e.invites = ids; render(); act(api.invite(e.id, ids), patchEvent); }) }, icon("users"), "Tag fellows"))),
         reactions({ type: "event", id: e.id }, e.reactions, false),
@@ -536,8 +543,32 @@
             action = did ? h("span", { class: "bb-pill bb-pill-pend", text: "You vouched · " + vouchesFor(x.fellow_id) + "/2" }) : h("button", { class: "bb-btn bb-btn-small", type: "button", text: "Yes, they were there", onclick: () => { e.vouches.push({ fellow_id: x.fellow_id, voucher_id: me().id }); render(); act(api.vouch(e.id, x.fellow_id), patchEvent); } });
           }
           else action = h("span", { class: "bb-pill " + (ok ? "bb-pill-ok" : "bb-pill-pend"), text: ok ? "Confirmed" : x.status === "pending" ? "Pending · " + vouchesFor(x.fellow_id) + "/2" : "Waiting for host" });
-          return h("li", { class: "bb-row" }, avatar(f, "md", ok), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: f.name }), h("span", { class: "bb-row-sub", text: viaWord(x) + (x.late ? " · added later" : "") + (x.confirmed_at ? " · " + fmtTime(x.confirmed_at) : "") })), action);
+          return h("li", { class: "bb-row" }, avatar(f, "md", ok, true), h("span", { class: "bb-row-text" }, nameBtn(f.id, f.name, "bb-row-name"), h("span", { class: "bb-row-sub", text: viaWord(x) + (x.late ? " · added later" : "") + (x.confirmed_at ? " · " + fmtTime(x.confirmed_at) : "") })), action);
         })) : h("p", { class: "bb-hint", text: started && !e.cancelled ? "Nobody has checked in yet." : "" }));
+    }
+    // Who's who: name, the Connect card line (org · city), and the way to their Connect page.
+    function openFellow(id, backFn) {
+      const f = fellow(id); if (!f) return;
+      const back = S.open && S.open.kind !== "photo" ? S.open : null;
+      const goBackFn = backFn || (back ? () => goBack(back) : null);
+      const content = h("div", { class: "bb-sheet-body" },
+        h("div", { class: "bb-row", style: { border: "0", padding: "0" } }, avatar(f, "lg"), h("span", { class: "bb-row-text" }, h("h2", { text: f.name + (f.id === me().id ? " (you)" : "") }), h("span", { class: "bb-row-sub", style: { whiteSpace: "normal", fontSize: "15px" }, text: f.sub || "No card details yet" }))),
+        h("div", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-primary", type: "button", onclick: () => { ui.close(); openConnect(f); } }, icon("link"), "Open in Connect"),
+          goBackFn ? h("button", { class: "bb-btn", type: "button", text: "Back", onclick: goBackFn }) : null));
+      ui.open(content, f.name);
+    }
+    function openAttendees(eventId) {
+      const e = event(eventId); if (!e) return;
+      const back = S.open;
+      const conf = confirmed(e).map(a => a.fellow_id);
+      const by = s => e.rsvps.filter(r => r.status === s).map(r => r.fellow_id);
+      const groups = [["There (confirmed)", conf], ["Going", by("going").filter(id => conf.indexOf(id) < 0)], ["Maybe", by("maybe")], ["Invited", e.invites.filter(id => !e.rsvps.some(r => r.fellow_id === id) && conf.indexOf(id) < 0)], ["Can't make it", by("no")]].filter(g => g[1].length);
+      const content = h("div", { class: "bb-sheet-body" }, h("div", { class: "bb-intro" }, h("span", { class: "bb-when", text: fmtWhen(e, S.now) }), h("h2", { text: e.title }), h("p", { text: "Hosted by " + name(e.host_id) })),
+        groups.length ? groups.map(g => h("div", { class: "bb-section" }, h("p", { class: "bb-label", text: g[0] + " · " + g[1].length }),
+          h("ul", { class: "bb-list" }, g[1].map(id => { const f = fellow(id); return h("li", { class: "bb-row" }, h("button", { class: "bb-row-open", type: "button", onclick: () => openFellow(id, () => openAttendees(eventId)) }, avatar(f, "md", conf.indexOf(id) >= 0), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: f.name + (id === e.host_id ? " · host" : "") }), f.sub ? h("span", { class: "bb-row-sub", text: f.sub }) : null))); })))) :
+          h("div", { class: "bb-empty" }, h("strong", { text: "Nobody yet" }), "RSVPs and check-ins show up here."),
+        h("div", { class: "bb-form-actions" }, h("button", { class: "bb-btn", type: "button", text: "Back", onclick: () => goBack(back) })));
+      ui.open(content, "Attendees");
     }
     function openLateClaim(e) {
       const tagged = eventPhotos(e.id).filter(p => p.tags.indexOf(me().id) >= 0);
@@ -825,11 +856,11 @@
       const canDelete = p.uploader_id === me().id || (e && isHost(e));
       const go = d => { const n = (idx + d + ids.length) % ids.length; openLightbox(list, ids[n], true); };
       const panel = h("div", { class: "bb-lb-panel" },
-        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md"), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: name(p.uploader_id) }), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") : "") })),
+        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md", false, true), h("span", { class: "bb-row-text" }, nameBtn(p.uploader_id, name(p.uploader_id), "bb-row-name"), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") : "") })),
           h("button", { class: "bb-btn bb-btn-small", type: "button", title: "The original file (" + (p.bytes ? fmtBytes(p.bytes) : "full quality") + ")", onclick: ev => downloadOne(p, ev.currentTarget) }, icon("download"), canShareFiles ? "Save to Photos" : "Original")),
         h("div", { class: "bb-actions" }, p.caption ? h("p", { class: "bb-desc", text: p.caption }) : h("span", { class: "bb-hint", text: canDelete ? "No caption yet" : "" }),
           canDelete ? h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", onclick: () => editCaption(p) }, icon("edit"), p.caption ? "Edit caption" : "Add caption") : null),
-        h("div", { class: "bb-tags" }, p.tags.map(id => h("span", { class: "bb-tag", "data-me": id === me().id }, avatar(fellow(id), "sm"), id === me().id ? "You" : first(id))),
+        h("div", { class: "bb-tags" }, p.tags.map(id => h("button", { class: "bb-tag", type: "button", "data-me": id === me().id, title: name(id), onclick: () => openFellow(id) }, avatar(fellow(id), "sm"), id === me().id ? "You" : first(id))),
           h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", onclick: () => pickFellows("Who's in this photo?", p.tags, ids2 => { p.tags = ids2; act(api.updatePhoto(p.id, { tags: ids2 }), patchPhoto); }) }, icon("tag"), "Tag people"),
           mineTag ? h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", text: "Untag me", onclick: () => { p.tags = p.tags.filter(x => x !== me().id); act(api.untagMe(p.id), patchPhoto); } }) : null),
         reactions({ type: "photo", id: p.id }, p.reactions, false),

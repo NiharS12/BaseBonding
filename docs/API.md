@@ -42,8 +42,9 @@ Request: `{}`
 
 ```json
 {
-  "me": { "id": "f0…01", "name": "Ada Okafor", "email": "ada.okafor@example.org", "phone": "+14155550101", "photo_url": null, "role": "fellow" },
-  "fellows": [ { "id": "f0…01", "name": "Ada Okafor", "email": "…", "phone": "…", "photo_url": null, "role": "fellow" }, … ],
+  "me": { "id": "f0…01", "name": "Ada Okafor", "email": "ada.okafor@example.org", "phone": "+14155550101", "photo_url": null, "host_org": "Sample Org", "city": "Sample Location", "role": "fellow" },
+  "fellows": [ { "id": "f0…01", "name": "Ada Okafor", "email": "…", "phone": "…", "photo_url": null, "host_org": "…", "city": "…", "role": "fellow" }, … ],
+  // host_org and city are the CorpsConnect card fields; the module shows "host_org · city" under every name, like the Connect list
   "events": [ <Event>, … ],            // all events incl. cancelled (cancelled:true), ordered by starts_at
   "photos": [ <Photo>, … ],            // status 'ok' for everyone + my own 'pending' inbound photos, newest first
   "inbound": { "slackChannel": "#cohort-photos", "smsNumber": "+1415…", "email": "photos@…", "contactUrl": "/bonding/contact.vcf", "autoPost": false },

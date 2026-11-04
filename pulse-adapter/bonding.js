@@ -87,6 +87,20 @@ const api = {
   setInboundAuto: on => API.call('bbsetinboundauto', { on: !!on }).catch(why),
 };
 
+// "Open in Connect" from a fellow's name: switch to the Connect tab and open their card. CorpsConnect keeps openFellow()
+// private, so this types the name into Connect's search box and opens the first row. (Cleaner: export openFellow from
+// corpsconnect.js and call hooks.openConnectFellow(id) here.)
+function openConnect(fellow) {
+  if (hooks.openConnectFellow) return hooks.openConnectFellow(fellow.id);
+  hooks.openConnectTab?.();
+  let tries = 0;
+  const t = setInterval(() => {
+    const box = document.querySelector('#corpsconnect .cc-search');
+    if (box) { box.value = fellow.name; box.dispatchEvent(new Event('input', { bubbles: true })); setTimeout(() => document.querySelector('#corpsconnect .cc-row-open')?.click(), 120); clearInterval(t); }
+    else if (++tries > 40) clearInterval(t);
+  }, 100);
+}
+
 // A check-in code always points at the main address, like Connect's badges do.
 const MAIN = 'basecamppulse.com', SAME_APP = [MAIN, 'www.' + MAIN, 'basecamp-pulse.salif-4f3.workers.dev'];
 const QR_BASE = SAME_APP.includes(location.hostname) ? `https://${MAIN}/` : location.origin + '/';
@@ -100,7 +114,7 @@ function load() {
     // qr.js is shared with Connect; loading it twice is harmless.
     loading = Promise.all([window.PulseQR ? null : script('/connect/qr.js'), script('/bonding/shape.js')])
       .then(() => script('/bonding/basecampbonding.js'))
-      .then(() => { bb = window.BasecampBonding.mount(document.getElementById('basecampbonding'), { api, qrBase: QR_BASE }); }, () => { loading = null; });
+      .then(() => { bb = window.BasecampBonding.mount(document.getElementById('basecampbonding'), { api, qrBase: QR_BASE, openConnect }); }, () => { loading = null; });
   }
   return loading;
 }

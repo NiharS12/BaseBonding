@@ -162,6 +162,16 @@
   background: var(--bb-accent) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%230b0b0b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>') center / 70% no-repeat;
   border: 2px solid var(--bb-surface);
 }
+.bb-avbtn { border: 0; padding: 0; margin: 0; cursor: pointer; font-family: inherit; appearance: none; -webkit-appearance: none; }
+/* a photo fills the circle exactly; initials sit on the optical centre (caps ride a hair high at line-height 1) */
+.bb-av img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bb-av { padding-top: 0.06em; }
+.bb-avbtn:hover { box-shadow: 0 0 0 2px var(--bb-accent); }
+.bb-namebtn { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; text-decoration: underline transparent; text-underline-offset: 2px; transition: text-decoration-color 0.15s; }
+.bb-namebtn:hover { text-decoration-color: var(--bb-accent-ink); }
+.bb-namebtn-b { font-weight: 650; }
+.bb-event { cursor: pointer; }
+.bb-event:focus-visible { outline: 2px solid var(--bb-accent-ink); outline-offset: 2px; }
 .bb-avs { display: flex; align-items: center; }
 .bb-avs .bb-av { border: 2px solid var(--bb-surface); margin-left: -9px; }
 .bb-avs .bb-av:first-child { margin-left: 0; }

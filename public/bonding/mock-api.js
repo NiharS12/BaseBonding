@@ -15,7 +15,7 @@
 
   // Demo roster: folk-tale pseudonyms, plus Nihar. Pulse supplies the real roster in production.
   var FELLOWS = [
-    ["f1", "Nihar Shankar", "Tulane · New Orleans, LA"],
+    ["f1", "Nihar Shankar", "Sample Org · Sample Location"],
     ["f2", "Johnny Appleseed", "Orchard Collective · Leominster, MA"],
     ["f3", "Annie Oakley", "Fair Shot Foundation · Greenville, OH"],
     ["f4", "Paul Bunyan", "Northwoods Trail Alliance · Bangor, ME"],
@@ -109,7 +109,7 @@
     var meId = opts.me || "f1";
     var state = null;
     try { state = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-    if (!state || state.v !== 5) { state = seedState(); state.v = 5; save(); }
+    if (!state || state.v !== 6) { state = seedState(); state.v = 6; save(); }
     var bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CH) : null;
     var listeners = [];
     if (bc) bc.onmessage = function () { try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} listeners.forEach(function (f) { f(); }); };
@@ -204,7 +204,7 @@
         var p = { id: uid(), event_id: ev ? ev.id : null, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: (caption || "").replace(/#\S+/g, "").trim(), source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
         state.photos.unshift(p); save(); return latency(pub(p));
       },
-      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 5; save(); }
+      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 6; save(); }
     };
     // A real backend always answers with a Promise; make the mock's synchronous throws behave the same way.
     Object.keys(api).forEach(function (k) { var fn = api[k]; if (k === "onChange" || k === "photoUrl" || k.charAt(0) === "_") return; api[k] = function () { try { return Promise.resolve(fn.apply(api, arguments)); } catch (e) { return Promise.reject(e); } }; });

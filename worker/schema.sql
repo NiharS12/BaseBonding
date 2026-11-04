@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS bb_fellows (
   name       TEXT NOT NULL,
   email      TEXT,
   phone      TEXT,             -- E.164 preferred; matched by digits for inbound SMS
-  photo_url  TEXT,
+  photo_url  TEXT,             -- the CorpsConnect card photo, so avatars match the Connect tab
+  host_org   TEXT,             -- CorpsConnect card: host organization   } shown under the name,
+  city       TEXT,             -- CorpsConnect card: where they're based } "host_org · city", like Connect's list
   role       TEXT,             -- e.g. 'fellow' | 'staff'
   inbound_auto INTEGER NOT NULL DEFAULT 0   -- 1 = Slack/SMS photos post straight into the album, no review list
 );

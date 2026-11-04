@@ -2,15 +2,15 @@
 -- Dev auth: send `X-Dev-Fellow: <id>` (or `Authorization: Bearer dev:<id>`) with one of the ids below.
 -- Times are UTC; the PT labels are what the module will show (PST, UTC-8, after Nov 1 2026).
 
-INSERT OR REPLACE INTO bb_fellows (id, name, email, phone, photo_url, role) VALUES
- ('f0000000-0000-4000-8000-000000000001', 'Ada Okafor',     'ada.okafor@example.org',     '+14155550101', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000002', 'Ben Castillo',   'ben.castillo@example.org',   '+14155550102', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000003', 'Chloe Nguyen',   'chloe.nguyen@example.org',   '+14155550103', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000004', 'Dev Raman',      'dev.raman@example.org',      '+14155550104', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000005', 'Elena Petrova',  'elena.petrova@example.org',  '+14155550105', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000006', 'Femi Adeyemi',   'femi.adeyemi@example.org',   '+14155550106', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000007', 'Grace Lindqvist','grace.lindqvist@example.org','+14155550107', NULL, 'fellow'),
- ('f0000000-0000-4000-8000-000000000008', 'Hugo Martins',   'hugo.martins@example.org',   '+14155550108', NULL, 'staff');
+INSERT OR REPLACE INTO bb_fellows (id, name, email, phone, photo_url, host_org, city, role) VALUES
+ ('f0000000-0000-4000-8000-000000000001', 'Ada Okafor',     'ada.okafor@example.org',     '+14155550101', NULL, 'Sample Org',            'Sample Location', 'fellow'),
+ ('f0000000-0000-4000-8000-000000000002', 'Ben Castillo',   'ben.castillo@example.org',   '+14155550102', NULL, 'Harbor Food Network',   'Oakland, CA',     'fellow'),
+ ('f0000000-0000-4000-8000-000000000003', 'Chloe Nguyen',   'chloe.nguyen@example.org',   '+14155550103', NULL, 'Open Courts Lab',       'Denver, CO',      'fellow'),
+ ('f0000000-0000-4000-8000-000000000004', 'Dev Raman',      'dev.raman@example.org',      '+14155550104', NULL, 'Bright Futures Tutoring','Atlanta, GA',    'fellow'),
+ ('f0000000-0000-4000-8000-000000000005', 'Elena Petrova',  'elena.petrova@example.org',  '+14155550105', NULL, 'Riverside Health Access','Portland, OR',   'fellow'),
+ ('f0000000-0000-4000-8000-000000000006', 'Femi Adeyemi',   'femi.adeyemi@example.org',   '+14155550106', NULL, 'Veterans Bridge',       'Austin, TX',      'fellow'),
+ ('f0000000-0000-4000-8000-000000000007', 'Grace Lindqvist','grace.lindqvist@example.org','+14155550107', NULL, 'Northside Credit Union','Minneapolis, MN', 'fellow'),
+ ('f0000000-0000-4000-8000-000000000008', 'Hugo Martins',   'hugo.martins@example.org',   '+14155550108', NULL, 'Basecamp Pulse',        'San Francisco, CA','staff');
 
 INSERT OR REPLACE INTO bb_events (id, title, description, starts_at, ends_at, location, location_url, host_id, checkin_token, cancelled, created_at, updated_at) VALUES
  -- upcoming: Wed Nov 4 2026, 8:00pm PT

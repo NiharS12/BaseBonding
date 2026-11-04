@@ -102,7 +102,7 @@ const bb = /^#bb-checkin-(.+)$/.exec(location.hash);
 if (bb) { history.replaceState(null, '', location.pathname); hooks.bbscanned?.(bb[1]); }
 ```
 
-and make `hooks.openBondingTab` switch to the Bonding tab the way `hooks.openConnectTab` does. The adapter registers `hooks.bonding` (tab opened), `hooks.bbscanned` (code arrived) and reads `startHash` for a code that came in before sign-in. The `db` guard in the adapter means the tab mounts only after sign-in.
+and make `hooks.openBondingTab` switch to the Bonding tab the way `hooks.openConnectTab` does. "Open in Connect" on a fellow's name calls `hooks.openConnectTab()` and then drives Connect's search box; if you'd rather, export `openFellow(id)` from `corpsconnect.js` and set `hooks.openConnectFellow = id => cc.openFellow(id)` in `connect.js`, which the adapter prefers when present. The adapter registers `hooks.bonding` (tab opened), `hooks.bbscanned` (code arrived) and reads `startHash` for a code that came in before sign-in. The `db` guard in the adapter means the tab mounts only after sign-in.
 
 ### 2. Backend
 
@@ -160,7 +160,7 @@ async email(message, env, ctx) { return handleEmail(message, env, ctx); }
 export async function resolveFellow(request, env) {
   const fellow = await pulseSessionToFellow(request, env);   // Pulse's own lookup
   if (!fellow) throw new ApiError('signed_out', 401);
-  return { id, name, email, phone, photo_url, role };          // id must match bb_fellows.id
+  return { id, name, email, phone, photo_url, host_org, city, role };   // id must match bb_fellows.id
 }
 ```
 
@@ -168,16 +168,17 @@ The multipart upload in `pulse-adapter/bonding.js` posts straight to `/api/bbupl
 
 ### 3. Roster
 
-`bb_fellows` must contain every fellow with the same `id` Pulse uses, because every other `bb_*` table references it and the tab tags, invites and attendance by id. Avatars match the Connect tab when `photo_url` is the CorpsConnect card photo.
+`bb_fellows` must contain every fellow with the same `id` Pulse uses, because every other `bb_*` table references it and the tab tags, invites and attendance by id. Three columns come straight from the CorpsConnect card so the tab looks like Connect: `photo_url` (the card photo, else initials), `host_org` and `city` (shown under every name as "host_org · city", exactly as the Connect list does). Use the same values CorpsConnect's `ccload` returns.
 
 Option A, mirror: on sign-in (or nightly) upsert from Pulse's roster:
 
 ```sql
-INSERT INTO bb_fellows (id, name, email, phone, photo_url, role) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-ON CONFLICT(id) DO UPDATE SET name = excluded.name, email = excluded.email, phone = excluded.phone, photo_url = excluded.photo_url, role = excluded.role;
+INSERT INTO bb_fellows (id, name, email, phone, photo_url, host_org, city, role) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+ON CONFLICT(id) DO UPDATE SET name = excluded.name, email = excluded.email, phone = excluded.phone, photo_url = excluded.photo_url,
+  host_org = excluded.host_org, city = excluded.city, role = excluded.role;
 ```
 
-Option B, point at the existing table: edit the queries that read the roster (`bb_fellows` appears in `bonding.js` lines for `load`, `invite` and `setInboundAuto`, in `inbound.js` for `fellowByEmail`, `fellowByPhone`, `identity` and `inboundAuto`, and in `auth.js`). The columns needed are `id, name, email, phone, photo_url, role`; keep `inbound_auto` somewhere (it is one integer per fellow for the "Post mine automatically" switch).
+Option B, point at the existing table: edit the queries that read the roster (`bb_fellows` appears in `bonding.js` lines for `load`, `invite` and `setInboundAuto`, in `inbound.js` for `fellowByEmail`, `fellowByPhone`, `identity` and `inboundAuto`, and in `auth.js`). The columns needed are `id, name, email, phone, photo_url, host_org, city, role`; keep `inbound_auto` somewhere (it is one integer per fellow for the "Post mine automatically" switch).
 
 ### 4. Inbound channels: all free, nothing new to subscribe to
 
@@ -202,6 +203,7 @@ Use two phones signed in as two different fellows, one of them a host.
 
 ```
 [ ] Bonding tab appears, loads, no console errors; switch indicator lands on the 5th tab
+[ ] "Tag fellows" list shows the same photos and "org · city" lines as the Connect tab
 [ ] Propose an event (title, time, place, tag the other fellow) → it appears on phone 2 within 15 s
 [ ] RSVP Going on phone 2 → count updates on phone 1; react and comment both ways
 [ ] Set an event starting now; phone 2 taps "I was there" → phone 1 (host) sees it and confirms
