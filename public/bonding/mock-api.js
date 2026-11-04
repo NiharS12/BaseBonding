@@ -13,15 +13,16 @@
   var now = function () { return Date.now(); };
   var H = 3600e3, D = 24 * H;
 
+  // Demo roster: folk-tale pseudonyms, plus Nihar. Pulse supplies the real roster in production.
   var FELLOWS = [
     ["f1", "Nihar Shankar", "Tulane · New Orleans, LA"],
-    ["f2", "Aidan Haddad", "Institute For Justice · Arlington, VA"],
-    ["f3", "Alisha Naidu", "Code for America · Oakland, CA"],
-    ["f4", "Amaya Gallivan", "YMCA Charlotte · Charlotte, NC"],
-    ["f5", "Anvith Thumma", "Evidence Action · Washington, DC"],
-    ["f6", "Aiden Kaouk", "Alzheimer's Association · Chicago, IL"],
-    ["f7", "Andrew Solbjor", "Foundation for Puerto Rico · San Juan, PR"],
-    ["f8", "Akhil Paulson", "AllMemphis · Memphis, TN"]
+    ["f2", "Johnny Appleseed", "Orchard Collective · Leominster, MA"],
+    ["f3", "Annie Oakley", "Fair Shot Foundation · Greenville, OH"],
+    ["f4", "Paul Bunyan", "Northwoods Trail Alliance · Bangor, ME"],
+    ["f5", "Casey Jones", "Rail Towns Network · Jackson, TN"],
+    ["f6", "Calamity Jane", "Deadwood Community Fund · Deadwood, SD"],
+    ["f7", "John Henry", "Big Bend Tunnel Project · Talcott, WV"],
+    ["f8", "Pecos Bill", "Rio Grande Youth Rodeo · Pecos, TX"]
   ].map(function (f) { return { id: f[0], name: f[1], sub: f[2], photo_url: null }; });
 
   // Two sample fellows get a painted "profile photo", like a card photo from the Connect tab; the rest show initials.
@@ -108,7 +109,7 @@
     var meId = opts.me || "f1";
     var state = null;
     try { state = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-    if (!state || state.v !== 4) { state = seedState(); state.v = 4; save(); }
+    if (!state || state.v !== 5) { state = seedState(); state.v = 5; save(); }
     var bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CH) : null;
     var listeners = [];
     if (bc) bc.onmessage = function () { try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} listeners.forEach(function (f) { f(); }); };
@@ -203,7 +204,7 @@
         var p = { id: uid(), event_id: ev ? ev.id : null, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: (caption || "").replace(/#\S+/g, "").trim(), source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
         state.photos.unshift(p); save(); return latency(pub(p));
       },
-      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 4; save(); }
+      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 5; save(); }
     };
     // A real backend always answers with a Promise; make the mock's synchronous throws behave the same way.
     Object.keys(api).forEach(function (k) { var fn = api[k]; if (k === "onChange" || k === "photoUrl" || k.charAt(0) === "_") return; api[k] = function () { try { return Promise.resolve(fn.apply(api, arguments)); } catch (e) { return Promise.reject(e); } }; });
