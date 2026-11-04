@@ -164,6 +164,7 @@ curl -X POST localhost:8787/api/bbuploadphoto -H 'X-Dev-Fellow: f0000000-0000-40
 | `bbdownloadalbum` | `{}` cohort (all), `{ "eventId" }`, or `{ "tagged": true }` | | `[ { "id", "url": "/photos/<id>?size=orig", "filename", "bytes" } ]` (module zips client-side) |
 | `bbconfirminbound` | `{ "photoId", "eventId"? }` | uploader only; sets `status: ok`, optionally moves album | Photo |
 | `bbdiscardinbound` | `{ "photoId" }` | uploader only, pending only; deletes R2 + rows | `{ "ok": true, "id" }` |
+| `bbreplacephoto` | multipart: `photoId`, `file`, `thumb`?, `taken_at`?, `width`?, `height`? | uploader only. Swaps the file behind an existing photo (the full-quality original after a compressed MMS), same id so tags, reactions, comments and album are kept; `source` becomes `app`. | Photo |
 | `bbsetinboundauto` | `{ "on": true\|false }` | "Post mine automatically": while on, this fellow's Slack/SMS photos are stored with `status: ok` (no review list). Reported back in `load().inbound.autoPost`. | `{ "autoPost": bool }` |
 
 `photoUrl(id, {size})` in the contract is client-side: it is just `/photos/<id>?size=<size>`.

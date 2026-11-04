@@ -573,6 +573,41 @@ async function removePhoto(env, p) {
   ]);
 }
 
+/**
+ * Replace the file behind a photo with a better one (the full-quality original from the camera roll,
+ * after a carrier-compressed MMS came in by text). Uploader only. Same id, so tags, reactions, comments
+ * and album stay. Multipart like bbuploadphoto: `file`, `thumb`, `photoId`, optional `taken_at`, `width`, `height`.
+ */
+export async function replacePhoto({ env, me, request, body }) {
+  const form = body.form;
+  if (!form) throw new ApiError('bad_file', 400);
+  const p = await photoRow(env, form.get('photoId'));
+  if (p.uploader_id !== me.id) throw new ApiError('not_allowed', 403);
+  const file = form.get('file');
+  if (!file || typeof file === 'string') throw new ApiError('bad_file', 400);
+  if (file.size > MAX_PHOTO_BYTES) throw new ApiError('too_big', 413);
+  const contentType = file.type || 'application/octet-stream';
+  if (!isImageType(contentType)) throw new ApiError('bad_file', 400);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!bytes.length) throw new ApiError('bad_file', 400);
+  const thumb = form.get('thumb');
+  const thumbBytes = thumb && typeof thumb !== 'string' ? new Uint8Array(await thumb.arrayBuffer()) : null;
+  const width = Number(form.get('width')) > 0 ? Math.round(Number(form.get('width'))) : p.width;
+  const height = Number(form.get('height')) > 0 ? Math.round(Number(form.get('height'))) : p.height;
+  const takenMs = form.get('taken_at') ? Date.parse(form.get('taken_at')) : NaN;
+  const takenAt = Number.isFinite(takenMs) && takenMs > 0 ? new Date(takenMs).toISOString() : p.taken_at;
+  const filename = String(file.name || p.filename).slice(0, 200);
+
+  const origKey = `orig/${p.id}.${extFromType(contentType, filename)}`;
+  const thumbKey = thumbBytes && thumbBytes.length ? `thumb/${p.id}.jpg` : p.thumb_key;
+  await env.PHOTOS.put(origKey, bytes, { httpMetadata: { contentType }, customMetadata: { filename, uploader: me.id, replaced: nowIso() } });
+  if (thumbBytes && thumbBytes.length) await env.PHOTOS.put(thumbKey, thumbBytes, { httpMetadata: { contentType: 'image/jpeg' } });
+  if (p.orig_key !== origKey) await env.PHOTOS.delete(p.orig_key);
+  await q(env, `UPDATE bb_photos SET orig_key = ?2, thumb_key = ?3, filename = ?4, content_type = ?5, bytes = ?6, width = ?7, height = ?8, taken_at = ?9, source = 'app' WHERE id = ?1`,
+    p.id, origKey, thumbKey, filename, contentType, bytes.length, width, height, takenAt).run();
+  return getPhoto(env, me.id, p.id);
+}
+
 export async function deletePhoto({ env, me, body }) {
   const p = await photoRow(env, body.photoId || body.id);
   if (!(await canManagePhoto(env, me, p))) throw new ApiError('not_allowed', 403);

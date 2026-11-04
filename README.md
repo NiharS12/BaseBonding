@@ -1,78 +1,228 @@
-# Basecamp Bonding
+# Basecamp Bonding: migration runbook
 
-A fifth tab for [Basecamp Pulse](https://basecamppulse.com) (Claude Corps · Cohort 1): team bonding events on a shared live calendar, "I was there" attendance that can be verified, and cohort / per-event photo albums with tags, reactions and comments. Built the same way as the Connect tab (CorpsConnect): one plain-JavaScript module, no framework, no build step, mounted by a thin adapter that talks to Pulse's API.
+Basecamp Bonding is a fifth tab for [Basecamp Pulse](https://basecamppulse.com): team bonding events on a shared live calendar, "I was there" attendance verified by host confirm, QR or a 6-digit passcode, and cohort / per-event photo albums with tags, captions, reactions and comments. It is built exactly like the Connect tab (CorpsConnect): a plain-JavaScript module with no framework and no build step, mounted by a thin Pulse-side adapter that calls `API.call('bb…')`, plus a reference Cloudflare Worker (D1 + R2) that the Pulse Worker absorbs. This README is the step-by-step merge for the Pulse DEV team; `docs/API.md` and `docs/INBOUND.md` hold the reference detail.
+
+## File map
 
 ```
-BasecampBonding.mount(el, { api, qrBase })
+public/index.html                 demo shell only (Pulse header, 5-tab switch, demo bar). Not copied into Pulse.
+public/bonding/basecampbonding.js the module: window.BasecampBonding.mount(el, { api, qrBase })   → copy
+public/bonding/basecampbonding.css all classes bb-*, variables --bb-*                               → copy
+public/bonding/shape.js           wire ↔ module translation (ISO dates ↔ ms), used by the adapter  → copy
+public/bonding/qr.js              a copy of Pulse's /connect/qr.js (PulseQR)                        → not needed, Pulse has it
+public/bonding/mock-api.js        in-browser api for the no-backend demo                           → not needed
+public/bonding/worker-api.js      api client for the reference Worker (demo only)                  → not needed
+pulse-adapter/bonding.js          becomes Pulse's public/js/bonding.js                              → copy
+pulse-adapter/index.html.patch.md pointer to this README
+worker/wrangler.toml              bindings, vars, the secrets list
+worker/schema.sql                 11 bb_* tables (idempotent CREATE IF NOT EXISTS)
+worker/seed.sql                   demo roster + events for local dev only
+worker/src/index.js               router: the API route table, /photos/:id, /hooks/*, /bonding/contact.vcf, email()
+worker/src/bonding.js             every /api/bb* handler + servePhoto
+worker/src/inbound.js             Slack, email and (unused here) Twilio ingestion
+worker/src/util.js                ApiError, json, uuid, slugify, hmac, MAX_PHOTO_BYTES
+worker/src/auth.js                resolveFellow(): the one function Pulse replaces
+worker/scripts/test-inbound.sh    signed fake Slack + Twilio deliveries against a local Worker
+docs/API.md                       every endpoint, request/response shapes, error codes
+docs/INBOUND.md                   Slack app, Email Routing and Google Voice setup (Twilio section kept but not used)
 ```
 
-## What's in it
+## Run the demo locally
 
-**Events**
-- Propose an event: what, when, where (with a map link), details, and who it's with (tag fellows from the roster).
-- Week strip with dots on days that have plans; Upcoming / Past tabs; tap a day to filter.
-- RSVP Going / Maybe / Can't, reactions (🔥 ❤️ 😂 👏 🙌), and comments on every event.
-- Live: the module polls every 15 s (5 s around a live event), so every phone sees new events, RSVPs and comments within seconds. Writes are optimistic.
-
-**Attendance ("I was there")**
-- From 30 min before start until 48 h after the end, a fellow taps "I was there"; the host confirms or removes.
-- The host's check-in sheet shows a QR code (scan → `#bb-checkin-<code>` → confirmed) and a random 6-digit passcode fellows can type instead. "Get a new code" rotates both.
-- Late claims (any time later) need one proof: tag yourself in a photo from that event (verifies instantly), enter the host's passcode, the host confirms, or two confirmed attendees vouch. Pending claims never count.
-
-**Photos**
-- Cohort album, one album per event, and a "Tagged" view of every photo you're in. Tag people, react, comment, caption, move a photo between albums, delete your own (hosts can remove from their event).
-- Originals are stored untouched (up to 25 MB) with a 400 px thumb for the grid. The time the photo was taken is read from EXIF on upload, albums sort by it, and downloads carry the caption (EXIF + IPTC, what the Photos app shows as Caption) and the taken-date back into the file, without re-encoding a pixel.
-- Download the original from the lightbox, or "Download all" / "Download · N new" (everything added since your last download of that album) per album. On phones the Web Share API hands the files to the share sheet, where "Save Image" puts them straight into the Photos library; laptops get a zip.
-- Send photos in from your phone: Slack (post in the cohort channel), email (Cloudflare Email Routing, free), or text (a Twilio number, or a free Google Voice number that forwards MMS to the email address). "Save the contact" shows a vCard QR and sms:/mailto: links, so on iPhone or Android it becomes Share → Messages or Mail → Basecamp Bonding Photos. Add `#event-name` to file it under an event. They land in the sender's review list (with a one-tap "Post all"), or go straight into the album when the fellow turns on "Post mine automatically".
-
-**Look**: Pulse's light theme and Poppins, white cards, one honey-mustard accent, bottom sheets on phones, the same avatar style and roster as the Connect tab.
-
-## Try it
-
-No backend needed:
+Mock mode, no backend (data lives in the browser; open two tabs as two fellows to see live updates):
 
 ```bash
 cd public && python3 -m http.server 8790
 ```
 
-Open http://localhost:8790. The page runs on an in-browser mock (localStorage + BroadcastChannel): open it in two tabs as two different fellows ("You are" in the demo bar) to watch the calendar update live. "Simulate a Slack photo" shows the inbound flow.
-
-With the reference backend (Cloudflare Worker, local D1 + R2):
+Real backend (local D1 + R2, no Cloudflare account needed):
 
 ```bash
-cd worker
-cp .dev.vars.example .dev.vars
-npm run db:init
-npx wrangler dev --port 8787
+cd worker && cp .dev.vars.example .dev.vars && npm install && npm run db:init && npx wrangler dev --port 8787
 ```
 
-Open http://localhost:8787: the same page, now talking to the Worker. `npm run test:inbound` posts signed Slack and Twilio webhooks at it.
+Open http://localhost:8787. Dev sign-in is a header, with ids from `worker/seed.sql`:
 
-## Repo layout
-
-```
-public/index.html              demo shell that looks like Pulse (header, 5-tab switch, demo bar)
-public/bonding/
-  basecampbonding.js           the module (classes bb-*, variables --bb-*)
-  basecampbonding.css
-  shape.js                     wire ↔ module translation (ISO dates ↔ ms), shared by the adapters
-  worker-api.js                api client for the reference Worker (demo)
-  mock-api.js                  in-browser api for the no-backend demo
-  qr.js                        Pulse's own QR encoder (already in Pulse as /connect/qr.js)
-pulse-adapter/
-  bonding.js                   drop into Pulse's public/js/: maps the api to API.call('bb…')
-  index.html.patch.md          the four edits Pulse needs (tab button, pane, 5-column switch, import)
-worker/
-  wrangler.toml, schema.sql, seed.sql, src/{index,bonding,inbound,auth,util}.js, scripts/test-inbound.sh
-docs/
-  API.md                       every endpoint, shapes, error codes
-  INBOUND.md                   Slack app + Twilio setup, caption rules, the pending flow
+```bash
+curl -s -X POST localhost:8787/api/bbload -H 'X-Dev-Fellow: f0000000-0000-4000-8000-000000000001' | head -c 300
 ```
 
-## Integrating into Pulse
+`Authorization: Bearer dev:<id>` works too. `npm run db:reset` reseeds; `npm run test:inbound` posts a signed Slack webhook (and a Twilio one, which this plan does not use).
 
-See [pulse-adapter/index.html.patch.md](pulse-adapter/index.html.patch.md). In short: copy `public/bonding/` and `pulse-adapter/bonding.js` in, add the fifth tab, merge the Worker handlers and run `schema.sql`, and swap `resolveFellow()` in `worker/src/auth.js` for Pulse's session lookup. The roster (`bb_fellows`) should mirror Pulse's, ids and card photos included, so avatars match Connect.
+## Migration runbook
 
-## Status
+Do the steps in order. Each one names the file to touch.
 
-Verified locally: the whole module against the mock and against the Worker (events, RSVP, reactions, comments, attendance window, host confirm, QR and passcode check-in, late claims, uploads with thumbs, albums, tagging, captions, downloads with metadata, inbound webhooks with valid signatures). Not yet exercised: real Slack / Twilio / Email Routing traffic (needs the app credentials, see `docs/INBOUND.md`), the Cloudflare Images binding for mid-size renditions, and "Save to Photos" on a physical iPhone.
+### 1. Frontend
+
+**1a. Copy the module into Pulse's `public/`:**
+
+```bash
+cp public/bonding/basecampbonding.js public/bonding/basecampbonding.css public/bonding/shape.js  <pulse>/public/bonding/
+cp pulse-adapter/bonding.js  <pulse>/public/js/bonding.js
+```
+
+The adapter loads `/connect/qr.js` only if `window.PulseQR` is missing, so Pulse's existing copy is reused.
+
+**1b. `public/index.html`: the fifth tab button.** In `#dSwitch`, after the Connect button:
+
+```html
+<button role="tab" id="dsBonding" data-dmode="bonding" aria-selected="false">Bonding</button>
+```
+
+**1c. `public/index.html`: the mount section.** Next to `<section id="corpsconnect" …>`, shown the same way the Connect pane is:
+
+```html
+<section id="basecampbonding" aria-label="Basecamp Bonding" hidden></section>
+```
+
+The id `basecampbonding` is what `js/bonding.js` mounts into. Reuse whatever attribute or class Pulse uses to show the Connect pane for `data-dmode="bonding"`.
+
+**1d. `public/app.css`: five columns in the switch.**
+
+```css
+.dswitch{grid-template-columns:repeat(5,minmax(0,1fr))}
+.dswitch .dind{width:calc((100% - 8px) / 5)}
+.dswitch[data-on="bonding"] .dind{transform:translateX(400%)}
+@media (max-width:420px){.dswitch button{font-size:14px;padding-inline:4px}}
+```
+
+**1e. `public/js/main.js`: the import.**
+
+```js
+import './connect.js';
+import './bonding.js';
+```
+
+**1f. Hash router: scanned check-in codes.** The host's QR encodes `https://basecamppulse.com/#bb-checkin-<eventId>-<token>`. Wherever Pulse handles `#connect-<code>` on load and `hashchange` (the `hooks.scanned` path in shell.js / state.js), add the same for Bonding:
+
+```js
+// next to the #connect- handling
+const bb = /^#bb-checkin-(.+)$/.exec(location.hash);
+if (bb) { history.replaceState(null, '', location.pathname); hooks.bbscanned?.(bb[1]); }
+```
+
+and make `hooks.openBondingTab` switch to the Bonding tab the way `hooks.openConnectTab` does. The adapter registers `hooks.bonding` (tab opened), `hooks.bbscanned` (code arrived) and reads `startHash` for a code that came in before sign-in. The `db` guard in the adapter means the tab mounts only after sign-in.
+
+### 2. Backend
+
+**2a. `worker/schema.sql` → Pulse's D1.** All tables are `bb_`-prefixed; nothing collides.
+
+```bash
+npx wrangler d1 execute <pulse-db-name> --remote --file=worker/schema.sql
+```
+
+**2b. R2 bucket and bindings.**
+
+```bash
+npx wrangler r2 bucket create basecamp-bonding-photos
+```
+
+Add to Pulse's `wrangler.toml` (names from `worker/wrangler.toml`):
+
+```toml
+compatibility_flags = ["nodejs_compat"]
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "basecamp-bonding-photos"
+
+[vars]
+INBOUND_SLACK_CHANNEL = "#cohort-photos"
+INBOUND_SMS_NUMBER = "+1415…"                  # the Google Voice number, E.164
+INBOUND_EMAIL = "photos@basecamppulse.com"     # the Email Routing address
+```
+
+The handlers read Pulse's existing D1 binding as `env.DB`. If Pulse's binding has another name, alias it once at the top of the merged router (`env.DB ??= env.<name>`).
+
+**2c. Merge the Worker code.** Copy `worker/src/bonding.js`, `inbound.js` and `util.js` into Pulse's Worker source (`inbound.js` imports `postal-mime`, so `npm install postal-mime` there). Then mount the route table from `worker/src/index.js` in Pulse's router. The `API` object maps `bb<name>` → handler; every handler is `({ env, me, request, ctx, body }) => result`, where `me` is the signed-in fellow. The pieces to add:
+
+```js
+import * as bonding from './bonding.js';
+import { handleEmail, handleSlack } from './inbound.js';
+
+// inside fetch(), before Pulse's own routes
+if (path.startsWith('/api/bb'))        return handleApi(request, env, ctx, path.slice(5).toLowerCase()); // from index.js
+if (path.startsWith('/photos/'))       return bonding.servePhoto(request, env, path.slice(8), url.searchParams.get('size'));
+if (path === '/hooks/slack')           return handleSlack(request, env, ctx);
+if (path === '/bonding/contact.vcf')   return contactCard(env);                                       // from index.js
+// /hooks/twilio exists in index.js but is not part of this plan (paid); leave it out.
+
+// on the default export, for Email Routing
+async email(message, env, ctx) { return handleEmail(message, env, ctx); }
+```
+
+`handleApi` and `contactCard` can be lifted verbatim from `worker/src/index.js`. Errors are thrown as `ApiError(code, status)` and must come back as `{ "error": "<code>" }` with that status, which is what Pulse's `api.js` already turns into `ApiError` on the phone.
+
+**2d. `worker/src/auth.js`: replace `resolveFellow()`.** It is the only place that decides who is calling. Pulse already sends `Authorization: Bearer <session token>` on every `API.call()`; swap the dev scheme for Pulse's session lookup and return this shape:
+
+```js
+export async function resolveFellow(request, env) {
+  const fellow = await pulseSessionToFellow(request, env);   // Pulse's own lookup
+  if (!fellow) throw new ApiError('signed_out', 401);
+  return { id, name, email, phone, photo_url, role };          // id must match bb_fellows.id
+}
+```
+
+The multipart upload in `pulse-adapter/bonding.js` posts straight to `/api/bbuploadphoto` with the same bearer header (Pulse's `API.call` is JSON-only), so one lookup covers both.
+
+### 3. Roster
+
+`bb_fellows` must contain every fellow with the same `id` Pulse uses, because every other `bb_*` table references it and the tab tags, invites and attendance by id. Avatars match the Connect tab when `photo_url` is the CorpsConnect card photo.
+
+Option A, mirror: on sign-in (or nightly) upsert from Pulse's roster:
+
+```sql
+INSERT INTO bb_fellows (id, name, email, phone, photo_url, role) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+ON CONFLICT(id) DO UPDATE SET name = excluded.name, email = excluded.email, phone = excluded.phone, photo_url = excluded.photo_url, role = excluded.role;
+```
+
+Option B, point at the existing table: edit the queries that read the roster (`bb_fellows` appears in `bonding.js` lines for `load`, `invite` and `setInboundAuto`, in `inbound.js` for `fellowByEmail`, `fellowByPhone`, `identity` and `inboundAuto`, and in `auth.js`). The columns needed are `id, name, email, phone, photo_url, role`; keep `inbound_auto` somewhere (it is one integer per fellow for the "Post mine automatically" switch).
+
+### 4. Inbound channels: all free, nothing new to subscribe to
+
+Three channels, all on things that already exist. `docs/INBOUND.md` has the details (Slack scopes and event subscriptions, Email Routing, Google Voice, the caption → album rules, how senders are matched to fellows).
+
+**Slack** (already there): create the Slack app once, point its Events API at `https://basecamppulse.com/hooks/slack`, then:
+
+```bash
+npx wrangler secret put SLACK_SIGNING_SECRET   # Slack app > Basic Information
+npx wrangler secret put SLACK_BOT_TOKEN        # Slack app > OAuth, xoxb-…
+```
+
+**Email** (Cloudflare Email Routing, free on the basecamppulse.com zone): dashboard → Email → Email Routing → create `photos@basecamppulse.com` → action **Send to a Worker** → the Pulse Worker. The `email()` export from step 2c receives it. Set `INBOUND_EMAIL` to that address. Fellows "Share → Mail" photos to it at full size.
+
+**Texting** (Google Voice, free): create a Google Voice number on a Google account the team controls, turn on *Settings → Messages → Forward messages to email*, and in that Gmail add a filter *from:txt.voice.google.com → forward to photos@basecamppulse.com* (Gmail asks to verify the forwarding address once). A photo texted to the number arrives at the Worker as an email with the image attached and the sender's number in the subject; the handler matches it to `bb_fellows.phone`. Set `INBOUND_SMS_NUMBER` to the Google Voice number so the contact card and the "Text it" button use it. The Twilio code path (`/hooks/twilio`, `TWILIO_AUTH_TOKEN`) stays in the repo but is not wired in this plan.
+
+**Image quality by channel.** In-app upload, Slack and email keep the original file. Texting does not: a photo sent to a Google Voice number travels as MMS, and MMS is carrier-compressed (typically to well under 1 MB, roughly 1–2 megapixels). RCS does not help here because Google Voice numbers do not support RCS, so an iPhone always falls back to MMS for them. The app compensates two ways: texted photos show a "Text · reduced" badge, and the sender gets a "Replace with the original" button in the lightbox that swaps in the full-quality file from their camera roll while keeping tags, reactions and comments (`bbreplacephoto`). The contact card carries the email address too, so "Share → Mail" is the one-tap full-quality route from a phone.
+
+## Smoke test after merging
+
+Use two phones signed in as two different fellows, one of them a host.
+
+```
+[ ] Bonding tab appears, loads, no console errors; switch indicator lands on the 5th tab
+[ ] Propose an event (title, time, place, tag the other fellow) → it appears on phone 2 within 15 s
+[ ] RSVP Going on phone 2 → count updates on phone 1; react and comment both ways
+[ ] Set an event starting now; phone 2 taps "I was there" → phone 1 (host) sees it and confirms
+[ ] Host taps "Show check-in code"; phone 2 scans the QR → lands on basecamppulse.com/#bb-checkin-… → confirmed via QR
+[ ] Host taps "Get a new code"; phone 2 enters the 6-digit passcode → confirmed; the old passcode is rejected
+[ ] Upload 2 photos to the event album from phone 2; thumbs show; tag phone 1's fellow → appears in their Tagged tab
+[ ] Open a photo, add a caption, tap "Save to Photos" on an iPhone → share sheet → Save Image → in the camera roll with the caption
+[ ] "Download all" on a laptop → zip of originals; "Download · N new" after adding one more photo
+[ ] Post a photo in the Slack channel with "#<event>" → it shows in the sender's review banner → Keep → in the event album
+[ ] Share → Mail a photo to photos@basecamppulse.com with "#<event>" in the subject → arrives full size in the event album
+[ ] Text a photo to the Google Voice number from a phone on the roster → arrives (compressed) with the "Text · reduced" badge; "Replace with the original" swaps in the full file and keeps the tags
+[ ] GET /photos/<id>?size=orig returns the untouched file with Content-Disposition attachment
+```
+
+## Known gaps and decisions for the DEV team
+
+- `resolveFellow()` in `worker/src/auth.js` is a dev stub; the merge is not done until it reads Pulse's session. `PULSE_SHARED_SECRET` is reserved for that and unused by the stub.
+- Roster: pick option A or B above. With neither, `load()` returns an empty roster and tagging breaks.
+- `IMAGES` binding is optional. Without it, `GET /photos/:id?size=full` returns the original bytes (fine on Wi-Fi, heavy on cellular for 10 MB originals). Thumbs are made on the phone at upload, so the grid is light either way.
+- Inbound photos sit as `pending` for the sender and are accepted automatically after 24 h on the next `bbload` (`PENDING_AUTO_ACCEPT` in `worker/src/bonding.js`). Inbound photos have no thumb (`thumb_key` NULL), so the grid serves the original for those until a thumb is generated; a small job or the IMAGES binding would fix that.
+- Fellows can turn on "Post mine automatically" (`bb_fellows.inbound_auto`), which skips the review list entirely. Decide whether that should be the default.
+- Polling: the module calls `bbload` every 15 s per open tab (5 s within two hours of an event). `bbload` returns the whole dataset; fine for one cohort, worth a `since` parameter if it grows.
+- Google Voice is a personal-use product with no API and no RCS; the forward-to-Gmail route is the only automation, and texted photos are MMS-compressed (see step 4). If that ever becomes a problem, the Twilio handler is already in `inbound.js`.
+- Not exercised against real services: Slack Events API delivery, Cloudflare Email Routing, Google Voice forwarding, and Save to Photos on a physical iPhone. The signed-webhook and email handlers were tested locally with wrangler's `/cdn-cgi/handler/email` endpoint and `scripts/test-inbound.sh`.

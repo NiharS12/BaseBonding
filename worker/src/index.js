@@ -39,6 +39,7 @@ const API = {
   bbconfirminbound: bonding.confirmInbound,
   bbdiscardinbound: bonding.discardInbound,
   bbsetinboundauto: bonding.setInboundAuto,
+  bbreplacephoto: bonding.replacePhoto,
 };
 
 // The photo line as a contact card: fellows save it once, then text or email photos to it from any phone.

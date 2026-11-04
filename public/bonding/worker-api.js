@@ -54,6 +54,12 @@
         if (o.taken_at) fd.append("taken_at", new Date(o.taken_at).toISOString());
         return call("bbuploadphoto", fd, true).then(ph);
       },
+      replacePhoto: function (id, file, o) {
+        o = o || {}; var fd = new FormData(); fd.append("photoId", id); fd.append("file", file, file.name || "photo.jpg");
+        var thumb = S.dataUrlToBlob(o.thumb); if (thumb) fd.append("thumb", thumb, "thumb.jpg");
+        if (o.width) fd.append("width", String(o.width)); if (o.height) fd.append("height", String(o.height)); if (o.taken_at) fd.append("taken_at", new Date(o.taken_at).toISOString());
+        return call("bbreplacephoto", fd, true).then(ph);
+      },
       photoUrl: function (id, o) { return base + "/photos/" + encodeURIComponent(id) + "?size=" + ((o && o.size) || "thumb"); },
       downloadAlbum: function (scope) { return call("bbdownloadalbum", scope || {}).then(function (list) { return list.map(function (f) { return Object.assign({}, f, { url: base + f.url }); }); }); },
       updatePhoto: function (id, f) { return call("bbupdatephoto", { photoId: id, fields: f }).then(ph); },

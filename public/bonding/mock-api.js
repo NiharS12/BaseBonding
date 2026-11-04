@@ -181,6 +181,10 @@
           r.readAsDataURL(file);
         });
       },
+      replacePhoto: function (id, file, o) {
+        o = o || {}; var p = photo(id); if (p.uploader_id !== meId) throw err("not_allowed");
+        return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { p._data = String(r.result); p._thumb = o.thumb || null; p.filename = file.name || p.filename; p.bytes = file.size; p.width = o.width || p.width; p.height = o.height || p.height; p.taken_at = o.taken_at || p.taken_at; p.source = "app"; save(); setTimeout(function () { ok(pub(p)); }, 300); }; r.onerror = function () { no(err("bad_photo")); }; r.readAsDataURL(file); });
+      },
       photoUrl: function (id, o) { var p = photo(id); var size = (o && o.size) || "thumb"; if (size === "thumb" && p._thumb) return p._thumb; return p._data; },
       downloadAlbum: function (o) {
         o = o || {}; var list = state.photos.filter(function (p) { return p.status === "ok" && (o.eventId ? p.event_id === o.eventId : o.tagged ? p.tags.indexOf(meId) >= 0 : true); });

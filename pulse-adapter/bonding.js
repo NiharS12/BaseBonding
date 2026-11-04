@@ -30,10 +30,10 @@ const why = e => { const err = new Error(MSG[e?.code] || 'Something went wrong. 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
 
 // Multipart upload: API.call() is JSON-only, so this one request goes straight to fetch with Pulse's bearer token.
-async function upload(fd) {
+async function upload(fd, ep = '/api/bbuploadphoto') {
   const auth = window.PulseAPI?.auth?.();
   let res;
-  try { res = await fetch('/api/bbuploadphoto', { method: 'POST', headers: auth ? { authorization: 'Bearer ' + auth.token } : {}, body: fd }); }
+  try { res = await fetch(ep, { method: 'POST', headers: auth ? { authorization: 'Bearer ' + auth.token } : {}, body: fd }); }
   catch { why({ code: 'offline' }); }
   const data = await res.json().catch(() => null);
   if (!res.ok) why({ code: data?.error || 'unreachable' });
@@ -70,6 +70,12 @@ const api = {
     if (o.height) fd.append('height', String(o.height));
     if (o.taken_at) fd.append('taken_at', new Date(o.taken_at).toISOString());
     return upload(fd).then(S().fromServer.photo);
+  },
+  replacePhoto: (id, file, o = {}) => {
+    const fd = new FormData(); fd.append('photoId', id); fd.append('file', file, file.name || 'photo.jpg');
+    const thumb = S().dataUrlToBlob(o.thumb); if (thumb) fd.append('thumb', thumb, 'thumb.jpg');
+    if (o.width) fd.append('width', String(o.width)); if (o.height) fd.append('height', String(o.height)); if (o.taken_at) fd.append('taken_at', new Date(o.taken_at).toISOString());
+    return upload(fd, '/api/bbreplacephoto').then(S().fromServer.photo);
   },
   photoUrl: (id, o) => '/photos/' + encodeURIComponent(id) + '?size=' + (o?.size || 'thumb'),
   downloadAlbum: scope => API.call('bbdownloadalbum', scope || {}).catch(why),

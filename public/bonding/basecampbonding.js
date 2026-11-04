@@ -64,6 +64,7 @@
     clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
     search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'),
     photo: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/>'),
+    upload: svg('<path d="M12 16V5M7 10l5-5 5 5M4 20h16"/>'),
     chevron: svg('<path d="M6 9l6 6 6-6"/>'),
     hand: svg('<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11M11 5a1.5 1.5 0 0 1 3 0v6M14 6.5a1.5 1.5 0 0 1 3 0V12M17 9.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14a1.6 1.6 0 0 1 2.6-1.8L8 13.5"/>'),
     slack: svg('<path d="M9 3a2 2 0 0 0 0 4h2V5a2 2 0 0 0-2-2zM3 11a2 2 0 0 0 4 0V9H5a2 2 0 0 0-2 2zM15 21a2 2 0 0 0 0-4h-2v2a2 2 0 0 0 2 2zM21 13a2 2 0 0 0-4 0v2h2a2 2 0 0 0 2-2zM9 9H5v4h4zM15 15h4v-4h-4zM9 15v4h4v-4zM15 9V5h-4v4z"/>'),
@@ -664,7 +665,7 @@
     function photoTile(p, click) {
       return h("button", { class: "bb-ph", type: "button", "data-pending": p.status === "pending", onclick: click, "aria-label": "Photo by " + name(p.uploader_id) },
         h("img", { src: thumbUrl(p), alt: p.caption || "", loading: "lazy" }),
-        p.source !== "app" ? h("span", { class: "bb-ph-badge" }, icon(p.source === "slack" ? "slack" : p.source === "email" ? "send" : "phone"), p.source === "slack" ? "Slack" : p.source === "email" ? "Email" : "Text") : p.reactions.length ? h("span", { class: "bb-ph-badge", text: "🔥 " + p.reactions.length }) : null,
+        p.source !== "app" ? h("span", { class: "bb-ph-badge" }, icon(p.source === "slack" ? "slack" : p.source === "email" ? "send" : "phone"), p.source === "slack" ? "Slack" : p.source === "email" ? "Email" : "Text · reduced") : p.reactions.length ? h("span", { class: "bb-ph-badge", text: "🔥 " + p.reactions.length }) : null,
         p.tags.length ? avatars(p.tags, 3) : null);
     }
     function openAlbum(eventId, rerender) {
@@ -834,6 +835,8 @@
         reactions({ type: "photo", id: p.id }, p.reactions, false),
         h("div", { class: "bb-actions" },
           h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => moveToEvent(p) }, icon("link"), e ? "Move to another album" : "Add to an event"),
+          p.source !== "app" && p.uploader_id === me().id && api.replacePhoto ? h("label", { class: "bb-btn bb-btn-small bb-file", title: "Texted and emailed photos arrive compressed. Pick the same photo from your camera roll to swap in the full-quality file; tags and comments stay." }, icon("upload"), "Replace with the original",
+            h("input", { type: "file", accept: "image/*", "aria-label": "Replace with the original", onchange: ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ""; if (f) replaceOriginal(p, f); } })) : null,
           canDelete ? h("button", { class: "bb-btn bb-btn-small bb-btn-danger", type: "button", onclick: () => { if (!confirm("Delete this photo for everyone?")) return; S.data.photos = S.data.photos.filter(x => x.id !== p.id); act(api.deletePhoto(p.id)); ui.toast("Photo deleted"); if (ids.length > 1) { const rest = list.filter(x => x.id !== p.id); openLightbox(rest, rest[Math.min(idx, rest.length - 1)].id, true); } else closeLightbox(); } }, icon("trash"), "Delete") : null),
         commentsBlock({ type: "photo", id: p.id }, p.comments));
       const img = h("img", { src: fullUrl(p), alt: p.caption || "Photo by " + name(p.uploader_id) });
@@ -849,6 +852,11 @@
         stage, panel);
       if (lb) lb.replaceWith(box); else container.appendChild(box);
       lb = box; document.body.classList.add("bb-lock"); if (!rerender) box.focus({ preventScroll: true });
+    }
+    function replaceOriginal(p, file) {
+      ui.toast("Uploading the original…");
+      Promise.all([makeThumb(file), readTakenAt(file)]).then(([t, taken]) => api.replacePhoto(p.id, file, { thumb: t.thumb, width: t.width, height: t.height, taken_at: taken }))
+        .then(x => { patchPhoto(x); ui.toast("Replaced with the full-quality original (" + fmtBytes(file.size) + ")"); }, e => ui.toast(why(e)));
     }
     function editCaption(p) {
       const ta = h("textarea", { class: "bb-input", maxlength: "500", placeholder: "Say something about this photo" }, p.caption || "");
