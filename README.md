@@ -19,7 +19,7 @@ The photos fellows send during Basecamp no longer appear as they arrive. They ar
 
 ### What admins do
 
-Admins are Nihar (the builder) and Claude Corps staff: anyone whose roster role is `staff`, plus ids listed in the `ADMIN_FELLOW_IDS` setting. Admins see an **Admin** bar at the top of the tab and a panel with four parts:
+Admins are Claude Corps staff: anyone whose roster role is `staff`, plus ids listed in the `ADMIN_FELLOW_IDS` setting. Admins see an **Admin** bar at the top of the tab and a panel with four parts:
 
 1. **Reveal**: set or clear the release date and time, or press **Release now**. The release also runs by itself at the set time. Admins can release one event's album, or a single photo, early.
 2. **Hidden photos**: every photo waiting, with the album and people tags the app chose and how it chose them (hashtag, time, GPS, RSVP, @mention, Slack mention). A **Needs review** list collects ambiguous mentions ("@sam could be Sam Rivera or Sam Okoye") and low-confidence album picks, with one-tap fixes and suggested tags from the event's attendee list. Any photo can be **held** (never released) or deleted.
