@@ -1,0 +1,43 @@
+# Basecamp Bonding: reference Worker.
+# Runs locally with `npm run db:init && npm run dev` (local D1 + local R2, no account needed).
+#
+# Secrets (NOT in this file). Locally put them in `.dev.vars` (see .dev.vars.example);
+# in production set them with `npx wrangler secret put <NAME>`:
+#   SLACK_SIGNING_SECRET  Slack app > Basic Information > Signing Secret   (verifies POST /hooks/slack)
+#   SLACK_BOT_TOKEN       Slack app > OAuth > Bot User OAuth Token (xoxb-…)  (downloads files, users.info, replies)
+#   TWILIO_AUTH_TOKEN     Twilio console > Auth Token                        (verifies POST /hooks/twilio)
+#   PULSE_SHARED_SECRET   reserved for the DEV team's session lookup in src/auth.js (unused by the dev auth)
+
+name = "basecamp-bonding"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# The demo shell + module in ../public are served as static assets; anything that is not
+# /api/*, /photos/*, /hooks/* falls through to env.ASSETS.fetch(request).
+[assets]
+directory = "../public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[vars]
+# Shown in the module's "Send photos from Slack or text" card (api.load().inbound).
+INBOUND_SLACK_CHANNEL = "#cohort-photos"
+INBOUND_SMS_NUMBER = ""          # e.g. "+14155550123" once a Twilio number is bought
+
+[[d1_databases]]
+binding = "DB"
+database_name = "basecamp-bonding"
+# Placeholder; local dev ignores it. For production run `npx wrangler d1 create basecamp-bonding`
+# and paste the id it prints here.
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "basecamp-bonding-photos"
+# Production: `npx wrangler r2 bucket create basecamp-bonding-photos`
+
+# Optional: Cloudflare Images binding. When present, GET /photos/:id?size=full returns a
+# 1600px JPEG derived from the original instead of the original bytes.
+# [images]
+# binding = "IMAGES"

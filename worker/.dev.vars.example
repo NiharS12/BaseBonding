@@ -1,0 +1,5 @@
+# Copy to .dev.vars (git-ignored) for `wrangler dev`. These are the values scripts/test-inbound.sh signs with.
+SLACK_SIGNING_SECRET="local-slack-signing-secret"
+SLACK_BOT_TOKEN=""
+TWILIO_AUTH_TOKEN="local-twilio-auth-token"
+PULSE_SHARED_SECRET=""

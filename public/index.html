@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F6F7FB">
+<title>Basecamp Bonding · demo</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='14' fill='%231E2640'/%3E%3Cpath d='M8 36 L19 18 L26 28 L31 21 L40 36 Z' fill='%232E9460'/%3E%3Cpath d='M10 30 h4 l3 -5 l4 9 l3 -6 h3' fill='none' stroke='%23E9A62B' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/bonding/basecampbonding.css">
+<style>
+/* A slice of Pulse's own app.css so the demo looks like the real page. In Pulse these rules already exist. */
+:root{--paper:#F6F7FB;--card:#FFFFFF;--ink:#1B1C57;--soft:#5C5F7A;--line:#EEF0F5;--teal-d:#0E6B47;--display:"Poppins",system-ui,-apple-system,"Segoe UI",sans-serif;--body:var(--display);--mono:var(--display);--spring:cubic-bezier(.3,1.5,.5,1);color-scheme:light}
+*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:760px;margin:0 auto;padding-block:14px 72px;display:flex;flex-direction:column;gap:14px}
+h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
+.top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.logo svg{width:42px;height:42px;flex:none}
+.logo h1{font-weight:800;font-size:1.2rem;line-height:1}
+.logo small{display:block;font-size:.78rem;color:var(--soft);margin-top:3px}
+.clock{background:var(--card);border-radius:14px;padding:6px 12px;text-align:right;box-shadow:0 1px 0 var(--line)}
+.clock .t{font-weight:700;font-size:1.2rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.clock .n{font-size:.75rem;color:var(--soft)}
+/* The tab switch, widened from 4 to 5 columns (the one CSS change Pulse needs). */
+.dswitch{position:relative;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));background:var(--card);border-radius:99px;padding:4px;box-shadow:0 1px 0 var(--line)}
+.dswitch .dind{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px) / 5);border-radius:99px;background:var(--ink);transition:transform .45s var(--spring)}
+.dswitch[data-on="daily"] .dind{transform:translateX(100%)}.dswitch[data-on="builds"] .dind{transform:translateX(200%)}.dswitch[data-on="connect"] .dind{transform:translateX(300%)}.dswitch[data-on="bonding"] .dind{transform:translateX(400%)}
+.dswitch button,.dswitch a{position:relative;z-index:1;border:0;background:none;border-radius:99px;min-height:40px;font:inherit;font-family:var(--display);font-weight:600;color:var(--ink);cursor:pointer;transition:color .25s;display:flex;align-items:center;justify-content:center;text-decoration:none;min-width:0;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dswitch [aria-selected="true"]{color:#fff}
+@media (max-width:420px){.dswitch button,.dswitch a{font-size:14px}}
+/* Demo-only controls */
+.demo{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--soft);background:#fff;border:1px dashed #cfd2df;border-radius:14px;padding:8px 12px}
+.demo select,.demo button{font:inherit;font-size:13px;min-height:32px;border:1px solid #e2e4ec;border-radius:999px;background:#fff;padding:0 10px;color:var(--ink);cursor:pointer}
+.demo b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><rect width="48" height="48" rx="14" fill="#1E2640"/><path d="M8 36 L19 18 L26 28 L31 21 L40 36 Z" fill="#2E9460"/><path d="M19 18 L22.5 23.5 L19 22 L16 24 Z" fill="#fff"/><path d="M6 36 h36" stroke="#F7F8F3" stroke-width="2" stroke-linecap="round"/><path d="M10 30 h4 l3 -5 l4 9 l3 -6 h3" fill="none" stroke="#E9A62B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><h1>Basecamp Pulse</h1><small>Claude Corps · Cohort 1 · SF</small></div>
+    </div>
+    <div class="clock" aria-hidden="true"><div class="t" id="clock">—</div><div class="n">Pacific time</div></div>
+  </header>
+
+  <div class="dswitch" role="tablist" aria-label="Pulse" data-on="bonding"><span class="dind" aria-hidden="true"></span>
+    <a role="tab" href="https://basecamppulse.com/" aria-selected="false">Session</a>
+    <a role="tab" href="https://basecamppulse.com/" aria-selected="false">Daily</a>
+    <a role="tab" href="https://basecamppulse.com/" aria-selected="false">Builds</a>
+    <a role="tab" href="https://basecamppulse.com/" aria-selected="false">Connect</a>
+    <button role="tab" type="button" aria-selected="true">Bonding</button>
+  </div>
+
+  <div class="demo" id="demo">
+    <b>Demo mode</b><span id="demoMode"> · no server, data stays in this browser.</span>
+    <label>You are <select id="who"></select></label>
+    <button type="button" id="simSlack">Simulate a Slack photo</button>
+    <button type="button" id="simSms">Simulate a texted photo</button>
+    <button type="button" id="reset">Reset data</button>
+  </div>
+
+  <section id="basecampbonding" aria-label="Basecamp Bonding"></section>
+</div>
+
+<script src="/bonding/qr.js"></script>
+<script src="/bonding/shape.js"></script>
+<script src="/bonding/mock-api.js"></script>
+<script src="/bonding/worker-api.js"></script>
+<script src="/bonding/basecampbonding.js"></script>
+<script>
+(function () {
+  // Clock, like Pulse's header.
+  var clock = document.getElementById('clock');
+  function tick() { clock.textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' }).toLowerCase(); }
+  tick(); setInterval(tick, 15000);
+
+  // Two demo modes. Served by `wrangler dev` (worker/) the page talks to the real reference backend; opened from any plain
+  // static server it runs on the in-browser mock. ?api=mock or ?api=worker forces one.
+  var q = new URLSearchParams(location.search);
+  var useWorker = q.get('api') === 'worker' || (q.get('api') !== 'mock' && location.port === '8787');
+  var demo = document.getElementById('demo');
+  var who = document.getElementById('who');
+  var meKey = useWorker ? 'bb.demo.me.worker' : 'bb.demo.me';
+  var meId = sessionStorage.getItem(meKey) || (useWorker ? 'f0000000-0000-4000-8000-000000000001' : 'f1');
+  var api = useWorker ? BasecampBondingWorkerApi.create({ base: '', fellowId: meId }) : BasecampBondingMock.create({ me: meId });
+  document.getElementById('demoMode').textContent = useWorker ? ' · talking to the reference Worker on this port (local D1 + R2).' : ' · no server, data stays in this browser.';
+  var el = document.getElementById('basecampbonding');
+  var bb = BasecampBonding.mount(el, { api: api, qrBase: location.origin + location.pathname });
+
+  api.load().then(function (d) {
+    d.fellows.forEach(function (f) { var o = document.createElement('option'); o.value = f.id; o.textContent = f.name; o.selected = f.id === meId; who.appendChild(o); });
+  });
+  who.addEventListener('change', function () { sessionStorage.setItem(meKey, who.value); api._switchTo(who.value); bb.reload(); });
+  var sim = function (source) { return function () { if (useWorker) { alert('With the Worker, run worker/scripts/test-inbound.sh to post a signed Slack or Twilio webhook.'); return; } api._simulateInbound(source, prompt('Caption (add #karaoke, #dolores… to pick an event):', source === 'slack' ? '#dolores best day' : '') || ''); }; };
+  document.getElementById('simSlack').addEventListener('click', sim('slack'));
+  document.getElementById('simSms').addEventListener('click', sim('sms'));
+  document.getElementById('reset').addEventListener('click', function () { if (useWorker) { alert('Run `npm run db:reset` in worker/ to reseed the local database.'); return; } if (confirm('Reset the demo data in this browser?')) { api._reset(); location.reload(); } });
+
+  // A scanned check-in code: /#bb-checkin-<eventId>-<token>, same shape Pulse's connect links use.
+  function hash() { var m = /^#bb-checkin-(.+)$/.exec(location.hash); if (m) { history.replaceState(null, '', location.pathname); bb.openCheckinLink(m[1]); } }
+  addEventListener('hashchange', hash); hash();
+})();
+</script>
+</body>
+</html>

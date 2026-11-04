@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS bb_inbound_identities;
+DROP TABLE IF EXISTS bb_comments;
+DROP TABLE IF EXISTS bb_reactions;
+DROP TABLE IF EXISTS bb_photo_tags;
+DROP TABLE IF EXISTS bb_photos;
+DROP TABLE IF EXISTS bb_vouches;
+DROP TABLE IF EXISTS bb_attendance;
+DROP TABLE IF EXISTS bb_rsvps;
+DROP TABLE IF EXISTS bb_event_invites;
+DROP TABLE IF EXISTS bb_events;
+DROP TABLE IF EXISTS bb_fellows;
