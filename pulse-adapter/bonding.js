@@ -19,6 +19,7 @@ const MSG = {
   gone: "That isn't here anymore.",
   too_big: 'That photo is over 25 MB. Try another one.',
   bad_photo: "That file isn't a photo we can read.",
+  bad_time: 'Check the start and end times.',
   bad_text: 'Add a title and a start time.',
   not_allowed: "You can't do that one.",
   offline: "You're offline. Try again once you're connected.",
@@ -54,7 +55,7 @@ const api = {
   confirmAttendance: (id, fellowId, ok) => API.call('bbconfirmattendance', { eventId: id, fellowId, ok: !!ok }).then(S().fromServer.event, why),
   vouch: (id, fellowId) => API.call('bbvouch', { eventId: id, fellowId }).then(S().fromServer.event, why),
   checkin: code => API.call('bbcheckin', { code }).then(S().fromServer.event, why),
-  newCheckinCode: id => API.call('bbnewcheckincode', { eventId: id }).catch(why),
+  newCheckinCode: id => API.call('bbnewcheckincode', { eventId: id }).then(r => { const e = cache.events.find(x => x.id === id); if (e && r) { e.checkinToken = String(r.code || '').slice(id.length + 1); e.checkinPin = r.pin; } return r; }, why),
   checkinCode: id => { const e = cache.events.find(x => x.id === id); return e?.checkinToken && e?.checkinPin ? Promise.resolve({ code: id + '-' + e.checkinToken, pin: e.checkinPin }) : api.newCheckinCode(id); },
   react: (target, emoji, on) => API.call('bbreact', { target, emoji, on: !!on }).then(r => r?.starts_at ? S().fromServer.event(r) : r?.uploader_id ? S().fromServer.photo(r) : r, why),
   comment: (target, text) => { const id = uid(); return API.call('bbcomment', { target, text, id }).then(r => { const c = (r.comments || []).find(x => x.id === id); return c ? S().fromServer.comment(c) : { id, text, created_at: Date.now(), reactions: [] }; }, why); },
@@ -76,6 +77,7 @@ const api = {
     const fd = new FormData(); fd.append('photoId', id); fd.append('file', file, file.name || 'photo.jpg');
     const thumb = S().dataUrlToBlob(o.thumb); if (thumb) fd.append('thumb', thumb, 'thumb.jpg');
     if (o.width) fd.append('width', String(o.width)); if (o.height) fd.append('height', String(o.height)); if (o.taken_at) fd.append('taken_at', new Date(o.taken_at).toISOString());
+    if (o.lat != null && o.lng != null) { fd.append('lat', String(o.lat)); fd.append('lng', String(o.lng)); }
     return upload(fd, '/api/bbreplacephoto').then(S().fromServer.photo);
   },
   photoUrl: (id, o) => '/photos/' + encodeURIComponent(id) + '?size=' + (o?.size || 'thumb'),

@@ -65,7 +65,7 @@ Request: `{}`
   "invites":    [ "f0…02", "f0…03" ],                                      // "with whom"
   "attendance": [ { "fellow_id": "f0…02", "status": "confirmed", "via": "host", "late": false,
                     "created_at": "…", "confirmed_at": "…" } ],            // status claimed|confirmed|pending|denied, via tap|host|qr|photo|vouch
-  "vouches":    { "f0…07": 2 },                                            // distinct vouch count per pending fellow
+  "vouches":    [ { "fellow_id": "f0…07", "voucher_id": "f0…02" }, … ],     // one row per vouch, so the app can show "You vouched"
   "reactions":  [ { "emoji": "🔥", "fellow_id": "f0…03" } ],
   "comments":   [ { "id": "c0…01", "target_type": "event", "target_id": "e0…01", "fellow_id": "f0…02",
                     "text": "…", "created_at": "…", "reactions": [ { "emoji": "😂", "fellow_id": "f0…01" } ] } ],
@@ -99,7 +99,7 @@ rows show "added later".
 | endpoint | request | response |
 |---|---|---|
 | `bbcreateevent` | `{ "title", "starts_at", "ends_at"?, "description"?, "location"?, "location_url"?, "invites"?: [fellowId] }` (also accepted wrapped as `{ "fields": {…} }`). `ends_at` defaults to start + 2 h. Host = caller, auto-RSVP going. | Event |
-| `bbupdateevent` | `{ "eventId", "fields": { any of the above } }` host only | Event |
+| `bbupdateevent` | `{ "eventId", "fields": { any of the above, plus `invites` } }` | host only. `fields.invites` (array) replaces the whole "with whom" list, host excluded. | Event |
 | `bbcancelevent` | `{ "eventId" }` host only | Event (`cancelled: true`) |
 | `bbrsvp` | `{ "eventId", "status": "going" \| "maybe" \| "no" \| "none" }` (`none` removes) | Event |
 | `bbinvite` | `{ "eventId", "fellowIds": [ … ] }` any fellow may add people; unknown ids ignored | Event |
@@ -115,7 +115,7 @@ curl -X POST localhost:8787/api/bbcreateevent -H 'X-Dev-Fellow: f0000000-0000-40
 
 | endpoint | request | rule | response |
 |---|---|---|---|
-| `bbattend` | `{ "eventId" }` | **Verification off (default):** any time from 30 min before `starts_at` onward → `confirmed` via `tap` at once (`late: true` if after 48 h past `ends_at`); before that → `window_closed`. **Verification on:** only from 30 min before `starts_at` to 48 h after `ends_at`, else `window_closed`; sets `claimed` via `tap` for the host to confirm (idempotent if already claimed/confirmed). | Event |
+| `bbattend` | `{ "eventId" }` | **Verification off (default):** any time from 30 min before `starts_at` onward → `confirmed` via `tap` at once (`late: true` if after 48 h past `ends_at`); before that → `window_closed`. **Verification on:** only from 30 min before `starts_at` to 48 h after `ends_at`, else `window_closed`; sets `claimed` via `tap` for the host to confirm (idempotent if already claimed/confirmed); the host's own tap is `confirmed` via `host`. | Event |
 | `bbattendlate` | `{ "eventId", "photoId"? }` | after the window. If `photoId` is given and the caller is tagged in it (and it belongs to the event), or the caller is tagged in any photo of the event → `confirmed` via `photo`. Otherwise `pending` via `tap`, `late: true`. Inside the window, or with verification off, it behaves like `bbattend`; before the window → `window_closed`. | Event |
 | `bbconfirmattendance` | `{ "eventId", "fellowId", "ok": true\|false }` host only | `ok:true` → `confirmed` via `host`. `ok:false` → `denied` for late claims, row removed for in-window claims. | Event |
 | `bbvouch` | `{ "eventId", "fellowId" }` | caller must have `confirmed` attendance (`not_allowed`); target must be `claimed`/`pending` (`already` if confirmed); one vouch per voucher (`already`). 2 distinct vouches → `confirmed` via `vouch`. | Event |

@@ -40,8 +40,7 @@ function groupBy(list, key) {
 }
 
 function shapeEvent(e, meId, rel) {
-  const vouches = {};
-  for (const v of rel.vouches.get(e.id) || []) vouches[v.fellow_id] = (vouches[v.fellow_id] || 0) + 1;
+  const vouches = (rel.vouches.get(e.id) || []).map(({ fellow_id, voucher_id }) => ({ fellow_id, voucher_id }));
   const out = {
     id: e.id,
     title: e.title,
@@ -248,8 +247,14 @@ export async function updateEvent({ env, me, body }) {
   const e = await eventRow(env, body.eventId || body.id);
   requireHost(e, me);
   const v = eventFields(body.fields || body, e);
-  await q(env, `UPDATE bb_events SET title=?2, description=?3, starts_at=?4, ends_at=?5, location=?6, location_url=?7, updated_at=?8 WHERE id=?1`,
-    e.id, v.title, v.description, v.starts_at, v.ends_at, v.location, v.location_url, nowIso()).run();
+  const f = body.fields || body;
+  const stmts = [q(env, `UPDATE bb_events SET title=?2, description=?3, starts_at=?4, ends_at=?5, location=?6, location_url=?7, updated_at=?8 WHERE id=?1`,
+    e.id, v.title, v.description, v.starts_at, v.ends_at, v.location, v.location_url, nowIso())];
+  if (Array.isArray(f.invites)) { // the edit form sends the whole "with whom" list: replace it
+    stmts.push(q(env, `DELETE FROM bb_event_invites WHERE event_id = ?1`, e.id));
+    for (const fid of uniqueIds(f.invites, me.id)) stmts.push(q(env, `INSERT OR IGNORE INTO bb_event_invites (event_id, fellow_id) VALUES (?1, ?2)`, e.id, fid));
+  }
+  await env.DB.batch(stmts);
   return getEvent(env, me.id, e.id);
 }
 
@@ -321,7 +326,8 @@ export async function attend({ env, me, body }) {
     return getEvent(env, me.id, e.id);
   }
   if (state !== 'open') throw new ApiError('window_closed', 409);
-  if (!cur || cur.status === 'denied') await setAttendance(env, e.id, me.id, 'claimed', 'tap', false, false);
+  if (e.host_id === me.id) { if (!cur || cur.status !== 'confirmed') await setAttendance(env, e.id, me.id, 'confirmed', 'host', false, true); }
+  else if (!cur || cur.status === 'denied') await setAttendance(env, e.id, me.id, 'claimed', 'tap', false, false);
   // already claimed/confirmed: idempotent
   return getEvent(env, me.id, e.id);
 }
@@ -616,7 +622,8 @@ export async function replacePhoto({ env, me, request, body }) {
   const takenMs = form.get('taken_at') ? Date.parse(form.get('taken_at')) : NaN;
   const ex = readExif(bytes, { timeZone: env.PLAN_TIMEZONE || 'UTC' });
   const takenAt = Number.isFinite(takenMs) && takenMs > 0 ? new Date(takenMs).toISOString() : ex.taken_at || p.taken_at;
-  const lat = ex.lat ?? p.lat, lng = ex.lng ?? p.lng;
+  const fl = Number(form.get('lat')), fg = Number(form.get('lng'));
+  const lat = ex.lat ?? (form.get('lat') != null && form.get('lat') !== '' && Number.isFinite(fl) ? fl : p.lat), lng = ex.lng ?? (form.get('lng') != null && form.get('lng') !== '' && Number.isFinite(fg) ? fg : p.lng);
   const filename = String(file.name || p.filename).slice(0, 200);
 
   const origKey = `orig/${p.id}.${extFromType(contentType, filename)}`;

@@ -37,7 +37,7 @@
       confirmAttendance: function (id, fid, ok) { return call("bbconfirmattendance", { eventId: id, fellowId: fid, ok: !!ok }).then(ev); },
       vouch: function (id, fid) { return call("bbvouch", { eventId: id, fellowId: fid }).then(ev); },
       checkin: function (code) { return call("bbcheckin", { code: code }).then(ev); },
-      newCheckinCode: function (id) { return call("bbnewcheckincode", { eventId: id }); },
+      newCheckinCode: function (id) { return call("bbnewcheckincode", { eventId: id }).then(function (r) { var e = cache.events.find(function (x) { return x.id === id; }); if (e && r) { e.checkinToken = String(r.code || "").slice(id.length + 1); e.checkinPin = r.pin; } return r; }); },
       checkinCode: function (id) { var e = cache.events.find(function (x) { return x.id === id; }); return e && e.checkinToken && e.checkinPin ? Promise.resolve({ code: id + "-" + e.checkinToken, pin: e.checkinPin }) : api.newCheckinCode(id); },
       react: function (t, emoji, on) { return call("bbreact", { target: t, emoji: emoji, on: !!on }).then(function (r) { return r && r.starts_at ? ev(r) : r && r.uploader_id ? ph(r) : r; }); },
       comment: function (t, text) { var id = uid(); return call("bbcomment", { target: t, text: text, id: id }).then(function (r) { var c = (r.comments || []).find(function (x) { return x.id === id; }); return c ? S.fromServer.comment(c) : { id: id, text: text, created_at: Date.now(), reactions: [] }; }); },
@@ -59,6 +59,7 @@
         o = o || {}; var fd = new FormData(); fd.append("photoId", id); fd.append("file", file, file.name || "photo.jpg");
         var thumb = S.dataUrlToBlob(o.thumb); if (thumb) fd.append("thumb", thumb, "thumb.jpg");
         if (o.width) fd.append("width", String(o.width)); if (o.height) fd.append("height", String(o.height)); if (o.taken_at) fd.append("taken_at", new Date(o.taken_at).toISOString());
+        if (o.lat != null && o.lng != null) { fd.append("lat", String(o.lat)); fd.append("lng", String(o.lng)); }
         return call("bbreplacephoto", fd, true).then(ph);
       },
       photoUrl: function (id, o) { return base + "/photos/" + encodeURIComponent(id) + "?size=" + ((o && o.size) || "thumb"); },

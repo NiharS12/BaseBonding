@@ -131,21 +131,48 @@
     function att(e, fid) { return e.attendance.find(function (a) { return a.fellow_id === fid; }); }
     function verifyOn() { return !!(state.features && state.features.verifyAttendance); } // off by default; demo bar "Verify attendance"
     function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+    var EMOJIS = ["🔥", "❤️", "😂", "👏", "🙌"];
+    function live(id) { var e = event(id); if (e.cancelled) throw err("gone"); return e; } // writes to a cancelled event: gone, like the Worker's eventRow()
+    function canManage(p) { var e = p.event_id && state.events.find(function (x) { return x.id === p.event_id; }); return p.uploader_id === meId || !!(e && e.host_id === meId); }
+    // Caption → album, the same rules as routeCaption() in worker/src/inbound.js: every #tag in order (#cohort, event id or
+    // id prefix, slug prefix, or a later word of the title), cancelled events excluded; else best title-word overlap within ±3 days.
+    function routeCaption(caption) {
+      caption = String(caption || "").trim();
+      var events = state.events.filter(function (e) { return !e.cancelled; });
+      var tags = []; caption.replace(/(^|\s)#([a-z0-9][a-z0-9_-]*)/gi, function (m, pre, t) { tags.push(t.toLowerCase()); return m; });
+      var strip = function (tag) { return caption.replace(new RegExp("(^|\\s)#" + tag + "\\b", "i"), "$1").replace(/\s+/g, " ").trim(); };
+      for (var i = 0; i < tags.length; i++) {
+        var tag = tags[i]; if (tag === "cohort") return { eventId: null, label: "Cohort album", caption: strip(tag) };
+        var sl = slug(tag), hit = events.find(function (e) { return e.id === tag || e.id.indexOf(tag) === 0 || slug(e.title).indexOf(sl) === 0 || slug(e.title).indexOf("-" + sl) >= 0; });
+        if (hit) return { eventId: hit.id, label: hit.title, caption: strip(tag) };
+      }
+      var near = events.filter(function (e) { return Math.abs(e.starts_at - now()) <= 3 * D; });
+      if (caption && near.length) {
+        var words = slug(caption).split("-").filter(function (w) { return w.length > 2; }), best = null, bestScore = 0;
+        near.forEach(function (e) { var score = slug(e.title).split("-").filter(function (w) { return w.length > 2 && words.indexOf(w) >= 0; }).length; if (score > bestScore) { best = e; bestScore = score; } });
+        if (best) return { eventId: best.id, label: best.title, caption: caption };
+      }
+      return { eventId: null, label: "Cohort album", caption: caption };
+    }
 
     var api = {
-      load: function () { return latency({ me: me(), fellows: state.fellows, events: state.events.map(withCounts), photos: state.photos.map(pub), inbound: Object.assign({}, state.inbound, { autoPost: !!(state.autoPost || {})[meId] }), features: { verifyAttendance: verifyOn() }, serverTime: now() }); },
+      load: function () {
+        var cutoff = now() - 24 * H; state.photos.forEach(function (p) { if (p.status === "pending" && p.created_at < cutoff) p.status = "ok"; }); save();
+        var evs = state.events.map(function (e) { var o = withCounts(e); if (e.host_id !== meId) { delete o.checkin_token; delete o.checkin_pin; } return o; });
+        var phs = state.photos.filter(function (p) { return p.status === "ok" || p.uploader_id === meId; }).map(pub);
+        return latency({ me: me(), fellows: state.fellows, events: evs, photos: phs, inbound: Object.assign({}, state.inbound, { autoPost: !!(state.autoPost || {})[meId] }), features: { verifyAttendance: verifyOn() }, serverTime: now() }); },
       setInboundAuto: function (on) { state.autoPost = state.autoPost || {}; state.autoPost[meId] = !!on; save(); return latency({ autoPost: !!on }); },
       onChange: function (fn) { listeners.push(fn); },
       createEvent: function (f) {
-        if (!f.title || !f.starts_at) throw err("bad_text");
+        if (!f.title) throw err("bad_text"); if (!f.starts_at) throw err("bad_time"); if (f.ends_at && +f.ends_at < +f.starts_at) throw err("bad_time");
         var e = { id: uid(), title: f.title, description: f.description || "", starts_at: +f.starts_at, ends_at: +(f.ends_at || f.starts_at + 2 * H), location: f.location || "", location_url: f.location_url || "",
-          host_id: meId, cancelled: false, created_at: now(), updated_at: now(), invites: f.invites || [], rsvps: [{ fellow_id: meId, status: "going" }], attendance: [], vouches: [], reactions: [], comments: [], checkin_token: Math.random().toString(36).slice(2, 10), checkin_pin: pin() };
+          host_id: meId, cancelled: false, created_at: now(), updated_at: now(), invites: (f.invites || []).filter(function (x, i, a) { return x !== meId && a.indexOf(x) === i; }), rsvps: [{ fellow_id: meId, status: "going" }], attendance: [], vouches: [], reactions: [], comments: [], checkin_token: Math.random().toString(36).slice(2, 10), checkin_pin: pin() };
         state.events.unshift(e); save(); return latency(withCounts(e));
       },
-      updateEvent: function (id, f) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); ["title", "description", "location", "location_url"].forEach(function (k) { if (k in f) e[k] = f[k]; }); if (f.starts_at) e.starts_at = +f.starts_at; if (f.ends_at) e.ends_at = +f.ends_at; if (f.invites) e.invites = f.invites; touch(e); save(); return latency(withCounts(e)); },
+      updateEvent: function (id, f) { var e = live(id); if (e.host_id !== meId) throw err("not_host"); if (f.ends_at && +f.ends_at < +(f.starts_at || e.starts_at)) throw err("bad_time"); ["title", "description", "location", "location_url"].forEach(function (k) { if (k in f) e[k] = f[k]; }); if (f.starts_at) e.starts_at = +f.starts_at; if (f.ends_at) e.ends_at = +f.ends_at; if (f.invites) e.invites = f.invites.filter(function (x, i, a) { return x !== meId && a.indexOf(x) === i; }); touch(e); save(); return latency(withCounts(e)); },
       cancelEvent: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); e.cancelled = true; touch(e); save(); return latency(withCounts(e)); },
       rsvp: function (id, status) { var e = event(id); e.rsvps = e.rsvps.filter(function (r) { return r.fellow_id !== meId; }); if (status && status !== "none") e.rsvps.push({ fellow_id: meId, status: status }); touch(e); save(); return latency(withCounts(e)); },
-      invite: function (id, ids) { var e = event(id); ids.forEach(function (x) { if (e.invites.indexOf(x) < 0) e.invites.push(x); }); touch(e); save(); return latency(withCounts(e)); },
+      invite: function (id, ids) { var e = live(id); ids.forEach(function (x) { if (e.invites.indexOf(x) < 0) e.invites.push(x); }); touch(e); save(); return latency(withCounts(e)); },
       attend: function (id) {
         var e = event(id); if (now() < e.starts_at - 30 * 60e3) throw err("window_closed");
         var a = att(e, meId);
@@ -154,35 +181,44 @@
           if (a) e.attendance.splice(e.attendance.indexOf(a), 1);
           e.attendance.push({ fellow_id: meId, status: "confirmed", via: "tap", late: !windowOpen(e), created_at: now(), confirmed_at: now() }); touch(e); save(); return latency(withCounts(e));
         }
-        if (!windowOpen(e)) throw err("window_closed"); if (a) throw err("already"); e.attendance.push({ fellow_id: meId, status: e.host_id === meId ? "confirmed" : "claimed", via: e.host_id === meId ? "host" : "tap", late: false, created_at: now() }); touch(e); save(); return latency(withCounts(e)); },
+        if (!windowOpen(e)) throw err("window_closed");
+        if (a && a.status !== "denied") return latency(withCounts(e)); // already claimed/confirmed: idempotent
+        if (a) e.attendance.splice(e.attendance.indexOf(a), 1);
+        var host = e.host_id === meId; e.attendance.push({ fellow_id: meId, status: host ? "confirmed" : "claimed", via: host ? "host" : "tap", late: false, created_at: now(), confirmed_at: host ? now() : null }); touch(e); save(); return latency(withCounts(e)); },
       attendLate: function (id, o) {
-        var e = event(id); o = o || {}; if (!verifyOn() || windowOpen(e)) return api.attend(id); if (att(e, meId)) throw err("already");
-        var tagged = state.photos.some(function (p) { return p.event_id === id && p.tags.indexOf(meId) >= 0 && (!o.photoId || p.id === o.photoId); });
+        var e = event(id); o = o || {}; if (now() < e.starts_at - 30 * 60e3) throw err("window_closed"); if (!verifyOn() || windowOpen(e)) return api.attend(id);
+        var cur = att(e, meId); if (cur && cur.status === "confirmed") return latency(withCounts(e));
+        var tagged = state.photos.some(function (p) { return p.event_id === id && p.status === "ok" && p.tags.indexOf(meId) >= 0 && (!o.photoId || p.id === o.photoId); });
+        if (cur && !tagged) return latency(withCounts(e)); // still pending: nothing changes
+        if (cur) e.attendance.splice(e.attendance.indexOf(cur), 1);
         e.attendance.push({ fellow_id: meId, status: tagged ? "confirmed" : "pending", via: tagged ? "photo" : "tap", late: true, created_at: now(), confirmed_at: tagged ? now() : null });
         touch(e); save(); return latency(withCounts(e));
       },
-      confirmAttendance: function (id, fid, ok) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); var a = att(e, fid); if (!a) throw err("gone"); if (ok) { a.status = "confirmed"; a.via = "host"; a.confirmed_at = now(); } else { a.status = "denied"; } touch(e); save(); return latency(withCounts(e)); },
+      confirmAttendance: function (id, fid, ok) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); var a = att(e, fid); if (!a) throw err("gone"); if (ok) { if (a.status !== "confirmed") { a.status = "confirmed"; a.via = "host"; a.confirmed_at = now(); } } else if (a.late) { a.status = "denied"; a.confirmed_at = null; } else { e.attendance.splice(e.attendance.indexOf(a), 1); } touch(e); save(); return latency(withCounts(e)); },
       vouch: function (id, fid) {
-        var e = event(id); var mine = att(e, meId); if (!mine || mine.status !== "confirmed") throw err("not_allowed");
-        var a = att(e, fid); if (!a || a.status !== "pending") throw err("gone");
-        if (!e.vouches.some(function (v) { return v.fellow_id === fid && v.voucher_id === meId; })) e.vouches.push({ fellow_id: fid, voucher_id: meId });
+        var e = event(id); if (fid === meId) throw err("not_allowed"); var mine = att(e, meId); if (!mine || mine.status !== "confirmed") throw err("not_allowed");
+        var a = att(e, fid); if (!a) throw err("gone"); if (a.status === "confirmed") throw err("already");
+        if (e.vouches.some(function (v) { return v.fellow_id === fid && v.voucher_id === meId; })) throw err("already");
+        e.vouches.push({ fellow_id: fid, voucher_id: meId });
         if (e.vouches.filter(function (v) { return v.fellow_id === fid; }).length >= 2) { a.status = "confirmed"; a.via = "vouch"; a.confirmed_at = now(); }
         touch(e); save(); return latency(withCounts(e));
       },
       checkin: function (code) {
-        var m = /^(.+)-([^-]+)$/.exec(code || ""); var e = m && state.events.find(function (x) { return x.id === m[1] && (x.checkin_token === m[2] || x.checkin_pin === m[2]); });
+        var raw = String(code || "").trim().replace(/^#?bb-checkin-/, ""); var m = /^(.+)-([^-]+)$/.exec(raw);
+        var e = m ? state.events.find(function (x) { return x.id === m[1] && !x.cancelled && (x.checkin_token === m[2] || x.checkin_pin === m[2]); })
+                  : state.events.find(function (x) { return x.checkin_token === raw && !x.cancelled; });
         if (!e) throw err("bad_code");
-        var via = m[2] === e.checkin_pin ? "code" : "qr";
+        var via = m && m[2] === e.checkin_pin && m[2] !== e.checkin_token ? "code" : "qr";
         var a = att(e, meId); if (a) { a.status = "confirmed"; a.via = via; a.confirmed_at = now(); } else e.attendance.push({ fellow_id: meId, status: "confirmed", via: via, late: !windowOpen(e), created_at: now(), confirmed_at: now() });
         touch(e); save(); return latency(withCounts(e));
       },
       newCheckinCode: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); e.checkin_token = Math.random().toString(36).slice(2, 10); e.checkin_pin = pin(); save(); return latency({ code: e.id + "-" + e.checkin_token, pin: e.checkin_pin }); },
       checkinCode: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); return latency({ code: e.id + "-" + e.checkin_token, pin: e.checkin_pin }); },
-      react: function (t, emoji, on) { var x = target(t); x.reactions = (x.reactions || []).filter(function (r) { return !(r.fellow_id === meId && r.emoji === emoji); }); if (on) x.reactions.push({ emoji: emoji, fellow_id: meId }); save(); return latency(t.type === "photo" ? pub(x) : x); },
-      comment: function (t, text) { text = String(text || "").trim(); if (!text) throw err("bad_text"); var x = target(t); var c = { id: uid(), fellow_id: meId, text: text, created_at: now(), reactions: [] }; x.comments.push(c); save(); return latency(c); },
-      deleteComment: function (id) { var c = target({ type: "comment", id: id }); if (c.fellow_id !== meId) throw err("not_allowed"); c.deleted = true; c.text = ""; save(); return latency({ ok: true }); },
+      react: function (t, emoji, on) { if (EMOJIS.indexOf(emoji) < 0) throw err("bad_emoji"); var x = target(t); x.reactions = (x.reactions || []).filter(function (r) { return !(r.fellow_id === meId && r.emoji === emoji); }); if (on) x.reactions.push({ emoji: emoji, fellow_id: meId }); save(); return latency(t.type === "photo" ? pub(x) : x); },
+      comment: function (t, text) { text = String(text || "").trim().slice(0, 1000); if (!text) throw err("bad_text"); var x = target(t); var c = { id: uid(), fellow_id: meId, text: text, created_at: now(), reactions: [] }; x.comments.push(c); save(); return latency(c); },
+      deleteComment: function (id) { var c = target({ type: "comment", id: id }); var hostOf = state.events.some(function (e) { return e.host_id === meId && (e.comments.indexOf(c) >= 0 || state.photos.some(function (p) { return p.event_id === e.id && p.comments.indexOf(c) >= 0; })); }); if (c.fellow_id !== meId && !hostOf) throw err("not_allowed"); c.deleted = true; c.text = ""; save(); return latency({ ok: true }); },
       uploadPhoto: function (file, o) {
-        o = o || {};
+        o = o || {}; if (o.eventId) live(o.eventId);
         return new Promise(function (ok, no) {
           if (file.size > 25 * 1024 * 1024) return no(err("too_big"));
           var r = new FileReader();
@@ -204,11 +240,11 @@
         o = o || {}; var list = state.photos.filter(function (p) { return p.status === "ok" && (o.eventId ? p.event_id === o.eventId : o.tagged ? p.tags.indexOf(meId) >= 0 : true); });
         return latency(list.map(function (p) { return { id: p.id, url: p._data, filename: p.filename, created_at: p.created_at }; }));
       },
-      updatePhoto: function (id, f) { var p = photo(id); if ("caption" in f) p.caption = f.caption; if (f.tags) p.tags = f.tags; if ("eventId" in f) p.event_id = f.eventId || null; save(); return latency(pub(p)); },
+      updatePhoto: function (id, f) { var p = photo(id); if (("caption" in f || "eventId" in f) && !canManage(p)) throw err("not_allowed"); if ("eventId" in f && f.eventId) live(f.eventId); if ("caption" in f) p.caption = String(f.caption || "").slice(0, 500); if (f.tags) p.tags = f.tags; if ("eventId" in f) p.event_id = f.eventId || null; save(); return latency(pub(p)); },
       untagMe: function (id) { var p = photo(id); p.tags = p.tags.filter(function (x) { return x !== meId; }); save(); return latency(pub(p)); },
       deletePhoto: function (id) { var p = photo(id); var e = p.event_id && state.events.find(function (x) { return x.id === p.event_id; }); if (p.uploader_id !== meId && !(e && e.host_id === meId)) throw err("not_allowed"); state.photos = state.photos.filter(function (x) { return x.id !== id; }); save(); return latency({ ok: true }); },
-      confirmInbound: function (id, o) { var p = photo(id); p.status = "ok"; if (o && "eventId" in o) p.event_id = o.eventId || null; save(); return latency(pub(p)); },
-      discardInbound: function (id) { return api.deletePhoto(id); },
+      confirmInbound: function (id, o) { var p = photo(id); if (p.uploader_id !== meId) throw err("not_allowed"); if (o && o.eventId) live(o.eventId); p.status = "ok"; if (o && "eventId" in o) p.event_id = o.eventId || null; save(); return latency(pub(p)); },
+      discardInbound: function (id) { var p = photo(id); if (p.uploader_id !== meId || p.status !== "pending") throw err("not_allowed"); return api.deletePhoto(id); },
       // Demo helpers (not part of the contract)
       _switchTo: function (id) { meId = id; },
       // Demo bar "Simulate a texted plan": the same parser the Worker uses, the event hosted by whoever "You are".
@@ -220,9 +256,8 @@
       },
       _setVerify: function (on) { state.features = state.features || {}; state.features.verifyAttendance = !!on; save(); },
       _simulateInbound: function (source, caption) {
-        var m = /#([a-z0-9-]+)/i.exec(caption || ""); var ev = null;
-        if (m && m[1] !== "cohort") ev = state.events.find(function (e) { return slug(e.title).indexOf(m[1].toLowerCase()) === 0; });
-        var p = { id: uid(), event_id: ev ? ev.id : null, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: (caption || "").replace(/#\S+/g, "").trim(), source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
+        var route = routeCaption(caption);
+        var p = { id: uid(), event_id: route.eventId, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: route.caption, source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
         state.photos.unshift(p); save(); return latency(pub(p));
       },
       _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 8; save(); }

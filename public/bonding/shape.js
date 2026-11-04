@@ -21,6 +21,7 @@
     }
     return Object.assign({}, e, {
       starts_at: ms(e.starts_at), ends_at: ms(e.ends_at), created_at: ms(e.created_at), updated_at: ms(e.updated_at),
+      description: e.description || "", location: e.location || "", location_url: e.location_url || "",
       cancelled: !!e.cancelled, invites: e.invites || [], rsvps: e.rsvps || [], reactions: e.reactions || [], vouches: vouches || [],
       attendance: (e.attendance || []).map(function (a) { return Object.assign({}, a, { late: !!a.late, created_at: ms(a.created_at), confirmed_at: ms(a.confirmed_at) }); }),
       comments: (e.comments || []).map(comment)
@@ -33,7 +34,7 @@
     return Object.assign({}, f, { sub: sub || "", photo_url: f.photo_url || null });
   }
   function load(d) {
-    return { me: fellow(d.me), fellows: (d.fellows || []).map(fellow), events: (d.events || []).map(event), photos: (d.photos || []).map(photo), inbound: d.inbound || {}, serverTime: ms(d.serverTime) || Date.now() };
+    return { me: fellow(d.me), fellows: (d.fellows || []).map(fellow), events: (d.events || []).map(event), photos: (d.photos || []).map(photo), inbound: d.inbound || {}, features: d.features || {}, serverTime: ms(d.serverTime) || Date.now() };
   }
   function eventFields(f) {
     var o = Object.assign({}, f);

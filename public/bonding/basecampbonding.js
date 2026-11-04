@@ -280,7 +280,7 @@
       window_closed: "The check-in window for this event has closed. Use \"I was there too\" instead.",
       not_host: "Only the host can do that.", already: "You're already on the list.", bad_code: "That check-in code didn't work. Ask the host to show it again.",
       gone: "That isn't here anymore.", too_big: "That photo is over 25 MB. Try another one.", bad_photo: "That file isn't a photo we can read.",
-      bad_text: "Add a title and a start time.", not_allowed: "You can't do that one.", offline: "You're offline. Try again once you're connected.",
+      bad_text: "Add a title and a start time.", bad_time: "Check the start and end times.", not_allowed: "You can't do that one.", offline: "You're offline. Try again once you're connected.",
       unreachable: "Couldn't reach Pulse. Check the Wi-Fi and try again.", slow_down: "A lot of taps at once. Try again in a moment.", signed_out: "Sign in to Pulse again, then try once more."
     };
     const why = e => MSG[e && e.code] || (e && e.message && !/^[a-z_]+$/.test(e.message) ? e.message : "Something went wrong. Try again.");
@@ -903,7 +903,7 @@
           mineTag ? h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", text: "Untag me", onclick: () => { p.tags = p.tags.filter(x => x !== me().id); act(api.untagMe(p.id), patchPhoto); } }) : null),
         reactions({ type: "photo", id: p.id }, p.reactions, false),
         h("div", { class: "bb-actions" },
-          h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => moveToEvent(p) }, icon("link"), e ? "Move to another album" : "Add to an event"),
+          canDelete ? h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => moveToEvent(p) }, icon("link"), e ? "Move to another album" : "Add to an event") : null,
           p.source !== "app" && p.uploader_id === me().id && api.replacePhoto ? h("label", { class: "bb-btn bb-btn-small bb-file", title: "Texted and emailed photos arrive compressed. Pick the same photo from your camera roll to swap in the full-quality file; tags and comments stay." }, icon("upload"), "Replace with the original",
             h("input", { type: "file", accept: "image/*", "aria-label": "Replace with the original", onchange: ev => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ""; if (f) replaceOriginal(p, f); } })) : null,
           canDelete ? h("button", { class: "bb-btn bb-btn-small bb-btn-danger", type: "button", onclick: () => { if (!confirm("Delete this photo for everyone?")) return; S.data.photos = S.data.photos.filter(x => x.id !== p.id); act(api.deletePhoto(p.id)); ui.toast("Photo deleted"); if (ids.length > 1) { const rest = list.filter(x => x.id !== p.id); openLightbox(rest, rest[Math.min(idx, rest.length - 1)].id, true); } else closeLightbox(); } }, icon("trash"), "Delete") : null),
