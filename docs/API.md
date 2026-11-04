@@ -146,9 +146,12 @@ Multipart `multipart/form-data` (preferred; original bytes untouched):
 | `caption` | optional, ≤ 500 chars |
 | `tags` | JSON array of fellow ids |
 | `width`, `height` | original pixel size (optional) |
-| `taken_at` | ISO time the photo was taken, read from EXIF on the phone (optional). Albums sort by it; the app stamps it back into downloads. |
+| `taken_at` | ISO time the photo was taken, read from EXIF on the phone (optional). The Worker reads the file's own EXIF too and uses it when this is missing. Albums sort by it; the app stamps it back into downloads. |
+| `lat`, `lng` | GPS from EXIF as read on the phone (optional). The Worker reads the file's GPS block itself for every source and prefers that. |
 
-JSON fallback: `{ "data": "<base64>", "thumb": "<base64 jpeg>"?, "filename", "contentType", "eventId"?, "caption"?, "tags"?, "width"?, "height"? }`.
+JSON fallback: `{ "data": "<base64>", "thumb": "<base64 jpeg>"?, "filename", "contentType", "eventId"?, "caption"?, "tags"?, "width"?, "height"?, "taken_at"?, "lat"?, "lng"? }`.
+
+Every stored photo (`bbuploadphoto`, `bbreplacephoto`, Slack, email, text) goes through `worker/src/exif.js`: the original bytes stay untouched in R2, and `taken_at`, `lat`, `lng`, `width`, `height` are indexed from the JPEG's EXIF/SOF when present. Photo objects carry `lat`/`lng` (null when the file has no GPS).
 
 R2 keys: `orig/<id>.<ext>` and `thumb/<id>.jpg`. Returns the Photo.
 

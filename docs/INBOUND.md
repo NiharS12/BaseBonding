@@ -109,6 +109,10 @@ Workers run in UTC. The sender gets a reply (Slack ephemeral / TwiML) saying wha
 success (the Worker has no sending binding) and a bounce when nothing parses. Messages that parse as neither photo nor plan get a
 one-line hint. Slack: any text-only message from a linked fellow in a channel the bot is in, or a DM to it, counts.
 
+## What survives each route (resolution, time, place)
+
+Nothing is recompressed server-side, and `worker/src/exif.js` reads the stored JPEG's EXIF date and GPS into `bb_photos.taken_at/lat/lng` for every source. What the file still contains depends on the route: Mail with "Actual Size" keeps everything (on iPhone the Share sheet's Options → Location defaults to on); Slack keeps the full file but strips GPS server-side; MMS is carrier-compressed and usually stripped of both. In-app upload from iOS Safari keeps the date but drops GPS unless the picker's Options → Location is on (iOS 17+); laptops and Android keep it all. The README has the table.
+
 ## Skipping the review list
 
 Each fellow can turn on **Post mine automatically** (the switch on the "Send photos from Slack or text" card; `POST /api/bbsetinboundauto { on: true }`, column `bb_fellows.inbound_auto`). While it is on, their inbound photos are stored with `status: ok` and the Slack/SMS reply says "Posted to the album". Otherwise photos wait as `pending` for the sender, who can confirm one at a time or tap **Post all**; anything still pending after 24 h is accepted into the album it was routed to on the next `bbload`.

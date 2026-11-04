@@ -1,6 +1,7 @@
 // Basecamp Bonding: API handlers. Each handler gets `{ env, me, request, body }` and returns
 // plain JSON. Business rules live here; the router (index.js) and auth (auth.js) stay thin.
 
+import { readExif } from './exif.js';
 import { ApiError, uuid, nowIso, extFromType, base64ToBytes, MAX_PHOTO_BYTES, MIN, HOUR } from './util.js';
 
 const EMOJIS = new Set(['🔥', '❤️', '😂', '👏', '🙌']);
@@ -88,6 +89,8 @@ const shapePhoto = (p, rel) => ({
   height: p.height,
   caption: p.caption,
   taken_at: p.taken_at,
+  lat: p.lat,
+  lng: p.lng,
   source: p.source,
   status: p.status,
   hasThumb: !!p.thumb_key,
@@ -503,7 +506,7 @@ export async function uploadPhoto({ env, me, request, body }) {
     if (thumb && typeof thumb !== 'string') thumbBytes = new Uint8Array(await thumb.arrayBuffer());
     let tags = [];
     try { tags = form.get('tags') ? JSON.parse(form.get('tags')) : []; } catch { throw new ApiError('bad_tags', 400); }
-    meta = { eventId: form.get('eventId') || null, caption: form.get('caption') || '', tags, width: form.get('width'), height: form.get('height'), taken_at: form.get('taken_at') };
+    meta = { eventId: form.get('eventId') || null, caption: form.get('caption') || '', tags, width: form.get('width'), height: form.get('height'), taken_at: form.get('taken_at'), lat: form.get('lat'), lng: form.get('lng') };
   } else {
     if (typeof body.data !== 'string') throw new ApiError('bad_file', 400);
     if (body.data.length > MAX_PHOTO_BYTES * 1.4) throw new ApiError('too_big', 413);
@@ -512,7 +515,7 @@ export async function uploadPhoto({ env, me, request, body }) {
     if (typeof body.thumb === 'string' && body.thumb) thumbBytes = base64ToBytes(body.thumb);
     filename = body.filename || 'photo';
     contentType = body.contentType || 'application/octet-stream';
-    meta = { eventId: body.eventId || null, caption: body.caption || '', tags: body.tags || [], width: body.width, height: body.height, taken_at: body.taken_at };
+    meta = { eventId: body.eventId || null, caption: body.caption || '', tags: body.tags || [], width: body.width, height: body.height, taken_at: body.taken_at, lat: body.lat, lng: body.lng };
   }
   if (!isImageType(contentType)) throw new ApiError('bad_file', 400);
   if (!bytes.length) throw new ApiError('bad_file', 400);
@@ -526,7 +529,12 @@ export async function uploadPhoto({ env, me, request, body }) {
   // When the photo was taken, as read from EXIF on the phone. Kept so albums sort by the moment, not the upload, and so a
   // download can carry the date back into the fellow's camera roll.
   const takenMs = meta.taken_at ? Date.parse(meta.taken_at) : NaN;
-  const takenAt = Number.isFinite(takenMs) && takenMs > 0 && takenMs < Date.now() + 86400e3 ? new Date(takenMs).toISOString() : null;
+  // The file itself is the authority: EXIF date and GPS read here, so the metadata is indexed however the photo arrived.
+  const ex = readExif(bytes, { timeZone: env.PLAN_TIMEZONE || 'UTC' });
+  const takenAt = Number.isFinite(takenMs) && takenMs > 0 && takenMs < Date.now() + 86400e3 ? new Date(takenMs).toISOString() : ex.taken_at;
+  const lat = ex.lat ?? (Number.isFinite(Number(meta.lat)) && meta.lat !== '' && meta.lat != null ? Number(meta.lat) : null);
+  const lng = ex.lng ?? (Number.isFinite(Number(meta.lng)) && meta.lng !== '' && meta.lng != null ? Number(meta.lng) : null);
+  const w = width || ex.width, hgt = height || ex.height;
 
   const id = uuid();
   const origKey = `orig/${id}.${extFromType(contentType, filename)}`;
@@ -535,9 +543,9 @@ export async function uploadPhoto({ env, me, request, body }) {
   if (thumbKey) await env.PHOTOS.put(thumbKey, thumbBytes, { httpMetadata: { contentType: 'image/jpeg' } });
 
   const stmts = [
-    q(env, `INSERT INTO bb_photos (id, event_id, uploader_id, orig_key, thumb_key, filename, content_type, bytes, width, height, caption, taken_at, source, status, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'app', 'ok', ?13)`,
-      id, eventId, me.id, origKey, thumbKey, String(filename).slice(0, 200), contentType, bytes.length, width, height, caption || null, takenAt, nowIso()),
+    q(env, `INSERT INTO bb_photos (id, event_id, uploader_id, orig_key, thumb_key, filename, content_type, bytes, width, height, caption, taken_at, lat, lng, source, status, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?14, ?15, 'app', 'ok', ?13)`,
+      id, eventId, me.id, origKey, thumbKey, String(filename).slice(0, 200), contentType, bytes.length, w, hgt, caption || null, takenAt, nowIso(), lat, lng),
   ];
   for (const fid of tags) stmts.push(q(env, `INSERT OR IGNORE INTO bb_photo_tags (photo_id, fellow_id) VALUES (?1, ?2)`, id, fid));
   await env.DB.batch(stmts);
@@ -606,7 +614,9 @@ export async function replacePhoto({ env, me, request, body }) {
   const width = Number(form.get('width')) > 0 ? Math.round(Number(form.get('width'))) : p.width;
   const height = Number(form.get('height')) > 0 ? Math.round(Number(form.get('height'))) : p.height;
   const takenMs = form.get('taken_at') ? Date.parse(form.get('taken_at')) : NaN;
-  const takenAt = Number.isFinite(takenMs) && takenMs > 0 ? new Date(takenMs).toISOString() : p.taken_at;
+  const ex = readExif(bytes, { timeZone: env.PLAN_TIMEZONE || 'UTC' });
+  const takenAt = Number.isFinite(takenMs) && takenMs > 0 ? new Date(takenMs).toISOString() : ex.taken_at || p.taken_at;
+  const lat = ex.lat ?? p.lat, lng = ex.lng ?? p.lng;
   const filename = String(file.name || p.filename).slice(0, 200);
 
   const origKey = `orig/${p.id}.${extFromType(contentType, filename)}`;
@@ -614,8 +624,8 @@ export async function replacePhoto({ env, me, request, body }) {
   await env.PHOTOS.put(origKey, bytes, { httpMetadata: { contentType }, customMetadata: { filename, uploader: me.id, replaced: nowIso() } });
   if (thumbBytes && thumbBytes.length) await env.PHOTOS.put(thumbKey, thumbBytes, { httpMetadata: { contentType: 'image/jpeg' } });
   if (p.orig_key !== origKey) await env.PHOTOS.delete(p.orig_key);
-  await q(env, `UPDATE bb_photos SET orig_key = ?2, thumb_key = ?3, filename = ?4, content_type = ?5, bytes = ?6, width = ?7, height = ?8, taken_at = ?9, source = 'app' WHERE id = ?1`,
-    p.id, origKey, thumbKey, filename, contentType, bytes.length, width, height, takenAt).run();
+  await q(env, `UPDATE bb_photos SET orig_key = ?2, thumb_key = ?3, filename = ?4, content_type = ?5, bytes = ?6, width = ?7, height = ?8, taken_at = ?9, lat = ?10, lng = ?11, source = 'app' WHERE id = ?1`,
+    p.id, origKey, thumbKey, filename, contentType, bytes.length, width || ex.width, height || ex.height, takenAt, lat, lng).run();
   return getPhoto(env, me.id, p.id);
 }
 

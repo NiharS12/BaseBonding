@@ -87,10 +87,11 @@
     // Real sample photos from public/bonding/demo (demo only; not copied into Pulse). [file, w, h, bytes]
     var PIC = { "dolores-1": ["dolores-1.jpg", 300, 300, 22615], "dolores-2": ["dolores-2.jpg", 425, 470, 61850], "dolores-3": ["dolores-3.jpg", 640, 479, 32382], "dolores-4": ["dolores-4.jpg", 402, 497, 49427],
       "bowling-1": ["bowling-1.jpg", 510, 392, 41258], "bowling-2": ["bowling-2.webp", 1920, 1080, 202370], "sf-1": ["sf-1.jpg", 365, 547, 33010], "sf-2": ["sf-2.jpg", 1200, 1303, 248036], "sf-3": ["sf-3.jpg", 1600, 899, 259198] };
+    var GEO = { picnic: [37.7596, -122.4269], bowling: [37.7647, -122.4175], sf: [37.8024, -122.4058] }; // Dolores Park, Mission Bowling Club, Coit Tower
     var ph = function (pic, eventId, uploader, tags, source, created, caption) {
-      var f = PIC[pic];
+      var f = PIC[pic], g = source === "sms" ? null : GEO[eventId === picnic ? "picnic" : eventId === bowling ? "bowling" : "sf"];
       photos.push({ id: uid(), event_id: eventId, uploader_id: uploader, filename: f[0], content_type: /webp$/.test(f[0]) ? "image/webp" : "image/jpeg",
-        bytes: f[3], width: f[1], height: f[2], caption: caption || "", taken_at: created - 20 * 60e3, source: source || "app", status: "ok",
+        bytes: f[3], width: f[1], height: f[2], caption: caption || "", taken_at: created - 20 * 60e3, lat: g ? g[0] : null, lng: g ? g[1] : null, source: source || "app", status: "ok",
         created_at: created, tags: tags, reactions: [], comments: [], _data: "/bonding/demo/" + f[0] });
     };
     ph("dolores-1", picnic, "f3", ["f1", "f2", "f3"], "app", t - 3 * D - 2 * H, "Upper lawn crew");
@@ -112,7 +113,7 @@
     var meId = opts.me || "f1";
     var state = null;
     try { state = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-    if (!state || state.v !== 7) { state = seedState(); state.v = 7; save(); }
+    if (!state || state.v !== 8) { state = seedState(); state.v = 8; save(); }
     var bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CH) : null;
     var listeners = [];
     if (bc) bc.onmessage = function () { try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} listeners.forEach(function (f) { f(); }); };
@@ -187,7 +188,7 @@
           var r = new FileReader();
           r.onload = function () {
             var p = { id: uid(), event_id: o.eventId || null, uploader_id: meId, filename: file.name || "photo.jpg", content_type: file.type || "image/jpeg", bytes: file.size, width: o.width || 0, height: o.height || 0,
-              caption: o.caption || "", taken_at: o.taken_at || null, source: "app", status: "ok", created_at: now(), tags: o.tags || [], reactions: [], comments: [], _data: String(r.result), _thumb: o.thumb || null };
+              caption: o.caption || "", taken_at: o.taken_at || null, lat: o.lat != null ? o.lat : null, lng: o.lng != null ? o.lng : null, source: "app", status: "ok", created_at: now(), tags: o.tags || [], reactions: [], comments: [], _data: String(r.result), _thumb: o.thumb || null };
             state.photos.unshift(p); save(); setTimeout(function () { ok(pub(p)); }, 300);
           };
           r.onerror = function () { no(err("bad_photo")); };
@@ -196,7 +197,7 @@
       },
       replacePhoto: function (id, file, o) {
         o = o || {}; var p = photo(id); if (p.uploader_id !== meId) throw err("not_allowed");
-        return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { p._data = String(r.result); p._thumb = o.thumb || null; p.filename = file.name || p.filename; p.bytes = file.size; p.width = o.width || p.width; p.height = o.height || p.height; p.taken_at = o.taken_at || p.taken_at; p.source = "app"; save(); setTimeout(function () { ok(pub(p)); }, 300); }; r.onerror = function () { no(err("bad_photo")); }; r.readAsDataURL(file); });
+        return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { p._data = String(r.result); p._thumb = o.thumb || null; p.filename = file.name || p.filename; p.bytes = file.size; p.width = o.width || p.width; p.height = o.height || p.height; p.taken_at = o.taken_at || p.taken_at; if (o.lat != null && o.lng != null) { p.lat = o.lat; p.lng = o.lng; } p.source = "app"; save(); setTimeout(function () { ok(pub(p)); }, 300); }; r.onerror = function () { no(err("bad_photo")); }; r.readAsDataURL(file); });
       },
       photoUrl: function (id, o) { var p = photo(id); var size = (o && o.size) || "thumb"; if (size === "thumb" && p._thumb) return p._thumb; return p._data; },
       downloadAlbum: function (o) {
@@ -224,7 +225,7 @@
         var p = { id: uid(), event_id: ev ? ev.id : null, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: (caption || "").replace(/#\S+/g, "").trim(), source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
         state.photos.unshift(p); save(); return latency(pub(p));
       },
-      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 7; save(); }
+      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 8; save(); }
     };
     // A real backend always answers with a Promise; make the mock's synchronous throws behave the same way.
     Object.keys(api).forEach(function (k) { var fn = api[k]; if (k === "onChange" || k === "photoUrl" || k.charAt(0) === "_") return; api[k] = function () { try { return Promise.resolve(fn.apply(api, arguments)); } catch (e) { return Promise.reject(e); } }; });

@@ -10,6 +10,7 @@
 import { ApiError, json, uuid, nowIso, slugify, normalizePhone, extFromType, hmac, timingSafeEqual, MAX_PHOTO_BYTES } from './util.js';
 import PostalMime from 'postal-mime';
 import { createEvent } from './bonding.js';
+import { readExif } from './exif.js';
 import '../../public/bonding/planparse.js'; // globalThis.BasecampBondingPlan, the same parser the browser demo uses
 
 const SLACK_MAX_AGE = 5 * 60; // seconds
@@ -126,11 +127,13 @@ async function storeInbound(env, { fellowId, eventId, caption, bytes, contentTyp
   const id = uuid();
   const status = (await inboundAuto(env, fellowId)) ? 'ok' : 'pending';
   const origKey = `orig/${id}.${extFromType(contentType, filename)}`;
+  // Slack, email and texted photos carry no client-side metadata, so the file is read here: taken-at, GPS, pixel size.
+  const ex = readExif(bytes, { timeZone: env.PLAN_TIMEZONE || 'UTC' });
   await env.PHOTOS.put(origKey, bytes, { httpMetadata: { contentType }, customMetadata: { filename: String(filename).slice(0, 200), uploader: fellowId, source } });
   await env.DB.prepare(
-    `INSERT INTO bb_photos (id, event_id, uploader_id, orig_key, thumb_key, filename, content_type, bytes, width, height, caption, source, status, created_at)
-     VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?12)`)
-    .bind(id, eventId, fellowId, origKey, String(filename).slice(0, 200), contentType, bytes.length, width || null, height || null, caption || null, source, nowIso(), status)
+    `INSERT INTO bb_photos (id, event_id, uploader_id, orig_key, thumb_key, filename, content_type, bytes, width, height, caption, taken_at, lat, lng, source, status, created_at)
+     VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?14, ?15, ?16, ?11, ?13, ?12)`)
+    .bind(id, eventId, fellowId, origKey, String(filename).slice(0, 200), contentType, bytes.length, width || ex.width || null, height || ex.height || null, caption || null, source, nowIso(), status, ex.taken_at, ex.lat, ex.lng)
     .run();
   return id;
 }

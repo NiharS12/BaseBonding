@@ -78,6 +78,7 @@
   const initials = name => { const p = String(name || "?").trim().split(/\s+/); return ((p[0] ? p[0][0] : "?") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase(); };
   const sameDay = (a, b) => { a = new Date(a); b = new Date(b); return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); };
   const fmtTime = t => new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s?([AP])M/i, (m, x) => x.toLowerCase() + "m").replace(":00", "");
+  const mapUrl = (lat, lng) => (/iPhone|iPad|Macintosh/.test(navigator.userAgent) ? "https://maps.apple.com/?ll=" : "https://www.google.com/maps?q=") + lat + "," + lng;
   const fmtDay = t => new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   function dayWord(t, now) {
     if (sameDay(t, now)) return new Date(t).getHours() >= 17 ? "Tonight" : "Today";
@@ -133,7 +134,25 @@
   const parseExifDate = s => { const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(s || ""); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : null; };
   const blobToBinary = blob => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = no; r.readAsBinaryString(blob); });
   const binaryToBlob = (bin, type) => { const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type }); };
-  // When was this taken? EXIF DateTimeOriginal for JPEGs, else the file's own modified time.
+  // When and where was this taken? EXIF DateTimeOriginal + GPS for JPEGs. (iOS strips GPS from photos picked in Safari unless
+  // the picker's Options → Location is on; the Worker re-reads the file anyway, so this is just a head start.)
+  function readExifMeta(file) {
+    const fallback = { taken_at: file.lastModified || null, lat: null, lng: null };
+    if (!/^image\/jpe?g$/i.test(file.type)) return Promise.resolve(fallback);
+    return loadScript(PIEXIF, "piexif").then(piexif => blobToBinary(file.slice(0, 256 * 1024)).then(head => {
+      try {
+        const ex = piexif.load(head), g = ex.GPS || {};
+        const s = ex.Exif[piexif.ExifIFD.DateTimeOriginal] || ex["0th"][piexif.ImageIFD.DateTime];
+        let lat = null, lng = null;
+        if (g[piexif.GPSIFD.GPSLatitude] && g[piexif.GPSIFD.GPSLongitude]) {
+          lat = piexif.GPSHelper.dmsRationalToDeg(g[piexif.GPSIFD.GPSLatitude], g[piexif.GPSIFD.GPSLatitudeRef] || "N");
+          lng = piexif.GPSHelper.dmsRationalToDeg(g[piexif.GPSIFD.GPSLongitude], g[piexif.GPSIFD.GPSLongitudeRef] || "E");
+          if (!isFinite(lat) || !isFinite(lng) || (!lat && !lng)) lat = lng = null;
+        }
+        return { taken_at: parseExifDate(s) || file.lastModified || null, lat, lng };
+      } catch (e) { return fallback; }
+    })).catch(() => fallback);
+  }
   function readTakenAt(file) {
     if (!/^image\/jpe?g$/i.test(file.type)) return Promise.resolve(file.lastModified || null);
     return loadScript(PIEXIF, "piexif").then(piexif => blobToBinary(file.slice(0, 256 * 1024)).then(head => {
@@ -834,7 +853,7 @@
             const btn = ev.currentTarget; btn.disabled = true; prog.hidden = false; const bar = prog.querySelector("i"), txt = prog.firstChild; let done = 0, failed = 0;
             for (const f of files) {
               txt.textContent = "Uploading " + (done + failed + 1) + " of " + files.length + " · " + f.name;
-              try { const [t, taken] = await Promise.all([makeThumb(f), readTakenAt(f)]); const p = await api.uploadPhoto(f, { eventId: target || null, caption, tags, thumb: t.thumb, width: t.width, height: t.height, taken_at: taken }); done++; patchPhoto(p); }
+              try { const [t, meta] = await Promise.all([makeThumb(f), readExifMeta(f)]); const p = await api.uploadPhoto(f, { eventId: target || null, caption, tags, thumb: t.thumb, width: t.width, height: t.height, taken_at: meta.taken_at, lat: meta.lat, lng: meta.lng }); done++; patchPhoto(p); }
               catch (e) { failed++; ui.toast(f.name + ": " + why(e)); }
               bar.style.width = Math.round((done + failed) / files.length * 100) + "%";
             }
@@ -873,7 +892,9 @@
       const canDelete = p.uploader_id === me().id || (e && isHost(e));
       const go = d => { const n = (idx + d + ids.length) % ids.length; openLightbox(list, ids[n], true); };
       const panel = h("div", { class: "bb-lb-panel" },
-        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md", false, true), h("span", { class: "bb-row-text" }, nameBtn(p.uploader_id, name(p.uploader_id), "bb-row-name"), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") : "") })),
+        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md", false, true), h("span", { class: "bb-row-text" }, nameBtn(p.uploader_id, name(p.uploader_id), "bb-row-name"), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") : "") }),
+          h("span", { class: "bb-row-sub bb-lb-geo" }, p.lat != null && p.lng != null ? h("a", { href: mapUrl(p.lat, p.lng), target: "_blank", rel: "noopener", title: p.lat + ", " + p.lng }, icon("pin"), "Where it was taken") : h("span", { text: "No location in this file" }),
+            " · ", h("span", { text: p.source === "sms" ? "Reduced by MMS" + (p.bytes ? " · " + fmtBytes(p.bytes) : "") : "Original file" + (p.bytes ? " · " + fmtBytes(p.bytes) : "") + (p.width && p.height ? " · " + p.width + "×" + p.height : "") }))),
           h("button", { class: "bb-btn bb-btn-small", type: "button", title: "The original file (" + (p.bytes ? fmtBytes(p.bytes) : "full quality") + ")", onclick: ev => downloadOne(p, ev.currentTarget) }, icon("download"), canShareFiles ? "Save to Photos" : "Original")),
         h("div", { class: "bb-actions" }, p.caption ? h("p", { class: "bb-desc", text: p.caption }) : h("span", { class: "bb-hint", text: canDelete ? "No caption yet" : "" }),
           canDelete ? h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", onclick: () => editCaption(p) }, icon("edit"), p.caption ? "Edit caption" : "Add caption") : null),
@@ -903,7 +924,7 @@
     }
     function replaceOriginal(p, file) {
       ui.toast("Uploading the original…");
-      Promise.all([makeThumb(file), readTakenAt(file)]).then(([t, taken]) => api.replacePhoto(p.id, file, { thumb: t.thumb, width: t.width, height: t.height, taken_at: taken }))
+      Promise.all([makeThumb(file), readExifMeta(file)]).then(([t, meta]) => api.replacePhoto(p.id, file, { thumb: t.thumb, width: t.width, height: t.height, taken_at: meta.taken_at, lat: meta.lat, lng: meta.lng }))
         .then(x => { patchPhoto(x); ui.toast("Replaced with the full-quality original (" + fmtBytes(file.size) + ")"); }, e => ui.toast(why(e)));
     }
     function editCaption(p) {

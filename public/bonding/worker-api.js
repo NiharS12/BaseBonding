@@ -49,6 +49,7 @@
         var thumb = S.dataUrlToBlob(o.thumb); if (thumb) fd.append("thumb", thumb, "thumb.jpg");
         if (o.eventId) fd.append("eventId", o.eventId);
         if (o.caption) fd.append("caption", o.caption);
+        if (o.lat != null && o.lng != null) { fd.append("lat", String(o.lat)); fd.append("lng", String(o.lng)); }
         fd.append("tags", JSON.stringify(o.tags || []));
         if (o.width) fd.append("width", String(o.width)); if (o.height) fd.append("height", String(o.height));
         if (o.taken_at) fd.append("taken_at", new Date(o.taken_at).toISOString());

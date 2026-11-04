@@ -344,6 +344,9 @@ textarea.bb-input { min-height: 88px; resize: vertical; }
 /* ---------- QR ---------- */
 .bb-qr { width: min(300px, 80vw); aspect-ratio: 1; margin: 0 auto; border: 1px solid var(--bb-line); border-radius: 16px; padding: 12px; background: #fff; }
 .bb-qr svg { display: block; width: 100%; height: 100%; }
+.bb-lb-geo { display: flex; align-items: center; gap: 4px; flex-wrap: wrap }
+.bb-lb-geo a { color: var(--bb-ink); display: inline-flex; align-items: center; gap: 3px; text-decoration: underline; text-underline-offset: 2px }
+.bb-lb-geo svg { width: 13px; height: 13px }
 .bb-steps { margin: 4px 0 0; padding-left: 20px; font-size: 14px; color: var(--bb-muted); display: grid; gap: 6px }
 .bb-steps li { padding-left: 2px }
 .bb-pin { text-align: center; font-family: var(--bb-font-mono); font-size: 40px; font-weight: 600; letter-spacing: 0.12em; background: var(--bb-sunk); border-radius: 16px; padding: 12px; font-variant-numeric: tabular-nums; }

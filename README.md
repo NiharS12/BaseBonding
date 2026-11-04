@@ -21,7 +21,7 @@ A Partiful-style event manager plus a photo album, inside the Pulse app every fe
 - **One album per event, plus one cohort album.** Open any album, or see every photo in one place.
 - **Tags and a "Tagged" view.** Tag who is in a photo; every fellow has a view of the photos they appear in.
 - **Captions that travel with the photo.** Edit a caption in the app and it is written into the file you download.
-- **Originals kept untouched.** Date, time and location metadata are preserved, so photos land in the right place on your phone. On iPhone, "Save to Photos" goes to the camera roll; on a laptop, albums download as a zip. "Download · N new" grabs only what you have not saved yet.
+- **Originals kept untouched, with time and place.** The file you send is the file that is stored, byte for byte, and the app reads its date, time and GPS so every photo knows when and where it was taken, whichever way it arrived. Open a photo to see "Where it was taken" on a map. On iPhone, "Save to Photos" puts it in the camera roll with that data intact; on a laptop, albums download as a zip. "Download · N new" grabs only what you have not saved yet. The table under "Full quality, time and location" says which routes keep what.
 - **Plans Bot: one contact for photos and plans.** Scan a QR (or tap Text it / Email it) to save "Plans Bot" to your phone. Text or mail it photos from iOS or Android and they post themselves; Slack photos work the same way. Add "#event-name" to put them in an event album; otherwise they go to the cohort album. Review first, or turn on "Post mine automatically".
 - **Text a plan in plain English and it becomes an event.** Send Plans Bot (by text, email or Slack) something like "Tacos at La Taqueria Friday 7pm", or "what: bowling, when: tomorrow 9pm, where: Mission Bowling Club", and the listing is created on the calendar with you as host. It understands today, tonight, tomorrow, weekdays, dates, times and ranges ("7-9pm"), and "at <place>". The bot replies with what it posted, and you can edit it in the tab.
 - **Replace with the original.** Texted photos arrive compressed by the carrier; one tap swaps in the full-quality file from your camera roll and keeps the tags and comments.
@@ -40,6 +40,20 @@ A Partiful-style event manager plus a photo album, inside the Pulse app every fe
 8. Find every photo of yourself under **Tagged**.
 9. To keep a photo, open it and tap **Save to Photos** (iPhone) or **Download** (laptop). **Download all** or **Download · N new** does a whole album at once.
 10. React and comment on events and photos as you go.
+
+## Full quality, time and location, by route
+
+The app never recompresses anything: whatever reaches it is stored as-is and served back as-is. What reaches it depends on the route, because phones and messaging apps strip things on the way out.
+
+| How the photo gets in | Resolution | Date and time | Location (GPS) |
+|---|---|---|---|
+| **Share → Mail** to Plans Bot (pick "Actual Size") | Full | Kept | Kept (iPhone: Share sheet → Options → Location on, the default) |
+| **In-app "Add photos"** from a laptop or Android | Full | Kept | Kept |
+| **In-app "Add photos"** on iPhone | Full (iOS converts HEIC to JPEG) | Kept | Only if you tap Options → Location in the photo picker (iOS 17+); iOS strips it otherwise |
+| **Slack** | Full file | Kept | Stripped by Slack |
+| **Text (MMS)** to Plans Bot | Reduced by the carrier | Usually stripped | Stripped |
+
+So the best route from a phone is **Share → Mail → Plans Bot** with "Actual Size": full file, time and place all intact. A texted photo shows "Reduced by MMS" in the app; tap **Replace with the original** to swap in the full file from your camera roll (same note as the picker about location on iPhone). Downloads and "Save to Photos" put the date and GPS back into the file, so the Photos app files it on the right day and the right place on the map.
 
 ## Attendance verification: optional, off by default
 
@@ -68,10 +82,11 @@ public/bonding/worker-api.js      api client for the reference Worker (demo only
 pulse-adapter/bonding.js          becomes Pulse's public/js/bonding.js                              → copy
 pulse-adapter/index.html.patch.md pointer to this README
 worker/wrangler.toml              bindings, vars, the secrets list
-worker/schema.sql                 11 bb_* tables (idempotent CREATE IF NOT EXISTS)
+worker/schema.sql                 11 bb_* tables (idempotent CREATE IF NOT EXISTS; bb_photos has lat/lng)
 worker/seed.sql                   demo roster + events for local dev only
 worker/src/index.js               router: the API route table, /photos/:id, /hooks/*, /bonding/contact.vcf, email()
 worker/src/bonding.js             every /api/bb* handler + servePhoto
+worker/src/exif.js                reads EXIF date and GPS from every stored JPEG (no dependencies)
 worker/src/inbound.js             Slack, email and (unused here) Twilio ingestion
 worker/src/util.js                ApiError, json, uuid, slugify, hmac, MAX_PHOTO_BYTES
 worker/src/auth.js                resolveFellow(): the one function Pulse replaces
@@ -273,6 +288,7 @@ Use two phones signed in as two different fellows, one of them a host.
 [ ] Text "Trivia at the Page Thursday 7pm" to the Google Voice number (or post it in the Slack channel) → the event appears on the calendar with the sender as host; the bot replies with what it posted
 [ ] Text a photo to the Google Voice number from a phone on the roster → arrives (compressed) with the "Text · reduced" badge; "Replace with the original" swaps in the full file and keeps the tags
 [ ] GET /photos/<id>?size=orig returns the untouched file with Content-Disposition attachment
+[ ] Mail a photo (Actual Size) with location → the lightbox shows "Where it was taken" and a map link; Save to Photos on an iPhone lands it on the right day and place
 ```
 
 ### Known gaps and decisions for the DEV team
@@ -281,6 +297,7 @@ Use two phones signed in as two different fellows, one of them a host.
 - Roster: pick option A or B above. With neither, `load()` returns an empty roster and tagging breaks.
 - `IMAGES` binding is optional. Without it, `GET /photos/:id?size=full` returns the original bytes (fine on Wi-Fi, heavy on cellular for 10 MB originals). Thumbs are made on the phone at upload, so the grid is light either way.
 - Inbound photos sit as `pending` for the sender and are accepted automatically after 24 h on the next `bbload` (`PENDING_AUTO_ACCEPT` in `worker/src/bonding.js`). Inbound photos have no thumb (`thumb_key` NULL), so the grid serves the original for those until a thumb is generated; a small job or the IMAGES binding would fix that.
+- If `bb_photos` already existed before this version, add the two GPS columns by hand: `ALTER TABLE bb_photos ADD COLUMN lat REAL; ALTER TABLE bb_photos ADD COLUMN lng REAL;` (a fresh `schema.sql` run includes them).
 - Attendance verification is off by default (`VERIFY_ATTENDANCE`). Flip the var to turn it on; no schema change, the tables and endpoints are always there.
 - Fellows can turn on "Post mine automatically" (`bb_fellows.inbound_auto`), which skips the review list entirely. Decide whether that should be the default.
 - Polling: the module calls `bbload` every 15 s per open tab (5 s within two hours of an event). `bbload` returns the whole dataset; fine for one cohort, worth a `since` parameter if it grows.

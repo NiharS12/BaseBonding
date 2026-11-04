@@ -81,7 +81,9 @@ CREATE TABLE IF NOT EXISTS bb_photos (
   width        INTEGER,
   height       INTEGER,
   caption      TEXT,
-  taken_at     TEXT,                         -- when the photo was taken (EXIF DateTimeOriginal, read by the client); NULL = unknown
+  taken_at     TEXT,                         -- when the photo was taken (EXIF DateTimeOriginal: read by the Worker from the file, or sent by the client); NULL = unknown
+  lat          REAL,                         -- EXIF GPS, read by the Worker from the file for every source; NULL = the file has none
+  lng          REAL,                         --   (the original file in R2 keeps the GPS block itself, so downloads carry it back into Photos)
   source       TEXT NOT NULL DEFAULT 'app' CHECK (source IN ('app','slack','sms','email')),
   status       TEXT NOT NULL DEFAULT 'ok'  CHECK (status IN ('ok','pending')),
   created_at   TEXT NOT NULL
