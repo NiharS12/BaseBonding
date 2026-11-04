@@ -1,4 +1,4 @@
-# Inbound photos: Slack and SMS (Twilio)
+# Inbound photos and plans: Slack, email and text
 
 Fellows can send photos without opening the app. Both channels land in the same place:
 `bb_photos` with `source: slack|sms` and `status: pending`, visible only to the sender until they
@@ -96,6 +96,19 @@ phone, two bad-signature requests (expect 401) and an unknown number (expect the
 then lists Ada's pending photos from `bbload`. Signatures are computed with `openssl dgst` using
 the values in `.dev.vars`, so the script doubles as a worked example of both signing schemes.
 
+## Plain-English plans (text, email, Slack)
+
+A message with no photo is read as a plan. "Tacos at La Taqueria Friday 7pm", "Karaoke tonight at 8 at Pandora" or
+"what: bowling when: tomorrow 9pm where: Mission Bowling Club" becomes a `bb_events` row hosted by the sender (with an
+automatic Going RSVP), exactly as if they had tapped "Propose an event". The parser is `public/bonding/planparse.js`,
+shared with the browser demo (the Worker imports it; `parsePlan()` in `inbound.js` wraps it). It needs a day or a time:
+today, tonight, tomorrow, weekday names ("fri", "next wed"), "nov 8", "11/8", "the 8th"; "7pm", "7:30 pm", "19:00", "noon",
+"7-9pm", "from 6 to 10pm", and a bare "at 7" means 7pm. The place is "at <place>" / "@ <place>" / "where: <place>". The end
+defaults to two hours after the start. Times are read in `PLAN_TIMEZONE` (wrangler var, default `America/Los_Angeles`) because
+Workers run in UTC. The sender gets a reply (Slack ephemeral / TwiML) saying what was posted; a plain email gets no reply on
+success (the Worker has no sending binding) and a bounce when nothing parses. Messages that parse as neither photo nor plan get a
+one-line hint. Slack: any text-only message from a linked fellow in a channel the bot is in, or a DM to it, counts.
+
 ## Skipping the review list
 
 Each fellow can turn on **Post mine automatically** (the switch on the "Send photos from Slack or text" card; `POST /api/bbsetinboundauto { on: true }`, column `bb_fellows.inbound_auto`). While it is on, their inbound photos are stored with `status: ok` and the Slack/SMS reply says "Posted to the album". Otherwise photos wait as `pending` for the sender, who can confirm one at a time or tap **Post all**; anything still pending after 24 h is accepted into the album it was routed to on the next `bbload`.
@@ -108,7 +121,7 @@ Pulse already runs on Cloudflare, and the cohort already has Slack, so two of th
 2. **Email (Cloudflare Email Routing)**: free on any zone. In the Cloudflare dashboard → Email → Email Routing, create an address such as `photos@basecamppulse.com` and set its action to **Send to a Worker** → this Worker. Set `INBOUND_EMAIL` in `wrangler.toml` to that address. The Worker's `email()` handler (`src/inbound.js`, `handleEmail`) parses the message with `postal-mime`, matches the sender to the roster by email, routes by `#event-name` in the subject or body, and stores every image attachment. Unknown senders get a bounce explaining why; no `send_email` binding is needed.
 3. **Texting without Twilio**: create a free **Google Voice** number, turn on *Settings → Messages → Forward messages to email*, and in that Gmail add a filter that forwards mail from `txt.voice.google.com` to `INBOUND_EMAIL`. An MMS to the Google Voice number then arrives at the Worker as an email with the photo attached and the sender's number in the subject (`New MMS from (415) 555-0199`); the handler matches that number to `bb_fellows.phone` and files the photo exactly like a Twilio MMS. Set `INBOUND_SMS_NUMBER` to the Google Voice number so the contact card and "Text it" button use it. Google Voice is for personal US accounts and its terms expect personal use; Twilio (`/hooks/twilio`) remains the supported path if that is a concern.
 
-**The contact card.** `GET /bonding/contact.vcf` serves a vCard with the number and email; the module's "Save the contact" sheet also encodes it in a QR. Once saved, fellows on iPhone or Android share photos from the camera roll to "Basecamp Bonding Photos" in Messages or Mail. On iPhone, opening the .vcf shows *Create New Contact*; the QR scanned with the Camera app offers *Add to Contacts*.
+**The contact card ("Plans Bot").** `GET /bonding/contact.vcf` serves a vCard named Plans Bot (nickname Flicks Bot) with the number and email; the module's "Save Plans Bot" sheet encodes the same card in a QR and walks through the four taps (point the Camera at it, tap "Add contact", keep the name, Save). Once saved, fellows on iPhone or Android share photos from the camera roll to "Plans Bot" in Messages or Mail, or text it a plan. On iPhone, opening the .vcf shows *Create New Contact*; the QR scanned with the Camera app offers *Add to Contacts*.
 
 Local test of the email path:
 

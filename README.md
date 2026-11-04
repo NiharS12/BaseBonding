@@ -1,8 +1,59 @@
-# Basecamp Bonding: migration runbook
+# Basecamp Bonding
 
-Basecamp Bonding is a fifth tab for [Basecamp Pulse](https://basecamppulse.com): team bonding events on a shared live calendar, "I was there" attendance verified by host confirm, QR or a 6-digit passcode, and cohort / per-event photo albums with tags, captions, reactions and comments. It is built exactly like the Connect tab (CorpsConnect): a plain-JavaScript module with no framework and no build step, mounted by a thin Pulse-side adapter that calls `API.call('bb…')`, plus a reference Cloudflare Worker (D1 + R2) that the Pulse Worker absorbs. This README is the step-by-step merge for the Pulse DEV team; `docs/API.md` and `docs/INBOUND.md` hold the reference detail.
+A fifth tab for [Basecamp Pulse](https://basecamppulse.com): a shared calendar for cohort plans and a shared photo album for the memories, so sharing a plan or a picture is as simple as sending one text.
 
-## File map
+## Why this exists
+
+The same thing kept happening in the cohort. Several plans would form at the same time for the same time, and nobody knew who was going or where they would be. Lots of pictures got taken, but they were hard to share afterwards. Several people wanted a shared album, and everyone was running low on iCloud space.
+
+## The problem it solves
+
+Fellows want to get to know the rest of the cohort, but plans get scattered and it is hard to track who is going where. Pictures stay on separate phones. The cohort stays connected at a surface level, and the photos get lost to time.
+
+## The solution
+
+A Partiful-style event manager plus a photo album, inside the Pulse app every fellow already opens. It coordinates events, organizes photos and catalogs memories: who did what, when, and the pictures to prove it. Every event gets its own album, and there is a cohort-wide shared album for everything else. Photos come in by text, email or Slack as easily as by upload, and go back out at full resolution straight into the Photos app with the time and location data intact.
+
+## What it does
+
+- **Shared live calendar.** Propose an event with where, when and who; it appears on everyone's calendar within seconds. RSVP Going, Maybe or Can't, and tag who you are going with.
+- **Reactions and comments** on every event and every photo.
+- **One album per event, plus one cohort album.** Open any album, or see every photo in one place.
+- **Tags and a "Tagged" view.** Tag who is in a photo; every fellow has a view of the photos they appear in.
+- **Captions that travel with the photo.** Edit a caption in the app and it is written into the file you download.
+- **Originals kept untouched.** Date, time and location metadata are preserved, so photos land in the right place on your phone. On iPhone, "Save to Photos" goes to the camera roll; on a laptop, albums download as a zip. "Download · N new" grabs only what you have not saved yet.
+- **Plans Bot: one contact for photos and plans.** Scan a QR (or tap Text it / Email it) to save "Plans Bot" to your phone. Text or mail it photos from iOS or Android and they post themselves; Slack photos work the same way. Add "#event-name" to put them in an event album; otherwise they go to the cohort album. Review first, or turn on "Post mine automatically".
+- **Text a plan in plain English and it becomes an event.** Send Plans Bot (by text, email or Slack) something like "Tacos at La Taqueria Friday 7pm", or "what: bowling, when: tomorrow 9pm, where: Mission Bowling Club", and the listing is created on the calendar with you as host. It understands today, tonight, tomorrow, weekdays, dates, times and ranges ("7-9pm"), and "at <place>". The bot replies with what it posted, and you can edit it in the tab.
+- **Replace with the original.** Texted photos arrive compressed by the carrier; one tap swaps in the full-quality file from your camera roll and keeps the tags and comments.
+- **"I was there".** One tap after an event marks you as there, so everyone can see who actually went. Attendance verification (host confirm, QR, passcode, vouches) is an optional feature, off by default; see below.
+- **Looks like the Connect tab.** Same photos, initials and "org · city" lines as the roster; a fellow's name opens their card with a link to Connect.
+
+## How to use it
+
+1. Open the **Bonding** tab in Pulse.
+2. Tap **Propose an event**, give it a title, a time and a place, and tag who you are going with.
+3. See a plan you like? Tap **Going** or **Maybe**. The counts and faces update for everyone.
+4. On the day, tap **I was there** on the event so it shows who actually went.
+5. Add photos: tap **Add photos** in the event or cohort album, or just text, email or Slack them to Plans Bot with "#event-name" in the message.
+6. In a hurry? Text Plans Bot the plan itself, "Trivia at the Page Thursday 7pm", and it posts the event for you.
+7. Tag the people in each photo and add a caption if you like.
+8. Find every photo of yourself under **Tagged**.
+9. To keep a photo, open it and tap **Save to Photos** (iPhone) or **Download** (laptop). **Download all** or **Download · N new** does a whole album at once.
+10. React and comment on events and photos as you go.
+
+## Attendance verification: optional, off by default
+
+**Off (the default).** "I was there" is a one-tap self-report. It counts the moment you tap it, any time from 30 minutes before the event starts onward, with nothing for the host to confirm. Tapping it later than two days after the event shows an "added later" note on your name.
+
+**On.** The same tap goes to the host to confirm. The host can also show a QR code or read out a randomly generated 6-digit passcode at the event, and either checks a fellow in instantly. After two days a claim needs proof: a photo from the event you are tagged in, the passcode, the host's confirm, or two confirmed attendees vouching for you.
+
+To turn it on: tick **Verify attendance** in the demo bar (mock mode), set `VERIFY_ATTENDANCE = "true"` in `worker/wrangler.toml` (reference Worker), or pass `verifyAttendance: true` in the mount options to override whatever the backend says. No schema change either way.
+
+## For the Pulse DEV team: migration runbook
+
+The rest of this file is the step-by-step merge. It is built exactly like the Connect tab (CorpsConnect): a plain-JavaScript module with no framework and no build step, mounted by a thin Pulse-side adapter that calls `API.call('bb…')`, plus a reference Cloudflare Worker (D1 + R2) that the Pulse Worker absorbs. `docs/API.md` and `docs/INBOUND.md` hold the reference detail.
+
+### File map
 
 ```
 public/index.html                 demo shell only (Pulse header, 5-tab switch, demo bar). Not copied into Pulse.
@@ -10,6 +61,8 @@ public/bonding/basecampbonding.js the module: window.BasecampBonding.mount(el, {
 public/bonding/basecampbonding.css all classes bb-*, variables --bb-*                               → copy
 public/bonding/shape.js           wire ↔ module translation (ISO dates ↔ ms), used by the adapter  → copy
 public/bonding/qr.js              a copy of Pulse's /connect/qr.js (PulseQR)                        → not needed, Pulse has it
+public/bonding/planparse.js       plain-English plan parser, shared by the Worker and the demo       → copy (the Worker imports it)
+public/bonding/demo/              the sample photos the demo albums show                             → not needed
 public/bonding/mock-api.js        in-browser api for the no-backend demo                           → not needed
 public/bonding/worker-api.js      api client for the reference Worker (demo only)                  → not needed
 pulse-adapter/bonding.js          becomes Pulse's public/js/bonding.js                              → copy
@@ -27,7 +80,7 @@ docs/API.md                       every endpoint, request/response shapes, error
 docs/INBOUND.md                   Slack app, Email Routing and Google Voice setup (Twilio section kept but not used)
 ```
 
-## Run the demo locally
+### Run the demo locally
 
 Mock mode, no backend (data lives in the browser; open two tabs as two fellows to see live updates):
 
@@ -49,11 +102,11 @@ curl -s -X POST localhost:8787/api/bbload -H 'X-Dev-Fellow: f0000000-0000-4000-8
 
 `Authorization: Bearer dev:<id>` works too. `npm run db:reset` reseeds; `npm run test:inbound` posts a signed Slack webhook (and a Twilio one, which this plan does not use).
 
-## Migration runbook
+### The merge, step by step
 
 Do the steps in order. Each one names the file to touch.
 
-### 1. Frontend
+#### 1. Frontend
 
 **1a. Copy the module into Pulse's `public/`:**
 
@@ -104,7 +157,7 @@ if (bb) { history.replaceState(null, '', location.pathname); hooks.bbscanned?.(b
 
 and make `hooks.openBondingTab` switch to the Bonding tab the way `hooks.openConnectTab` does. "Open in Connect" on a fellow's name calls `hooks.openConnectTab()` and then drives Connect's search box; if you'd rather, export `openFellow(id)` from `corpsconnect.js` and set `hooks.openConnectFellow = id => cc.openFellow(id)` in `connect.js`, which the adapter prefers when present. The adapter registers `hooks.bonding` (tab opened), `hooks.bbscanned` (code arrived) and reads `startHash` for a code that came in before sign-in. The `db` guard in the adapter means the tab mounts only after sign-in.
 
-### 2. Backend
+#### 2. Backend
 
 **2a. `worker/schema.sql` → Pulse's D1.** All tables are `bb_`-prefixed; nothing collides.
 
@@ -131,6 +184,8 @@ bucket_name = "basecamp-bonding-photos"
 INBOUND_SLACK_CHANNEL = "#cohort-photos"
 INBOUND_SMS_NUMBER = "+1415…"                  # the Google Voice number, E.164
 INBOUND_EMAIL = "photos@basecamppulse.com"     # the Email Routing address
+VERIFY_ATTENDANCE = "false"                    # optional attendance verification; "true" turns it on
+PLAN_TIMEZONE = "America/Los_Angeles"          # texted plans ("Friday 7pm") are read in this zone
 ```
 
 The handlers read Pulse's existing D1 binding as `env.DB`. If Pulse's binding has another name, alias it once at the top of the merged router (`env.DB ??= env.<name>`).
@@ -166,7 +221,7 @@ export async function resolveFellow(request, env) {
 
 The multipart upload in `pulse-adapter/bonding.js` posts straight to `/api/bbuploadphoto` with the same bearer header (Pulse's `API.call` is JSON-only), so one lookup covers both.
 
-### 3. Roster
+#### 3. Roster
 
 `bb_fellows` must contain every fellow with the same `id` Pulse uses, because every other `bb_*` table references it and the tab tags, invites and attendance by id. Three columns come straight from the CorpsConnect card so the tab looks like Connect: `photo_url` (the card photo, else initials), `host_org` and `city` (shown under every name as "host_org · city", exactly as the Connect list does). Use the same values CorpsConnect's `ccload` returns.
 
@@ -180,7 +235,7 @@ ON CONFLICT(id) DO UPDATE SET name = excluded.name, email = excluded.email, phon
 
 Option B, point at the existing table: edit the queries that read the roster (`bb_fellows` appears in `bonding.js` lines for `load`, `invite` and `setInboundAuto`, in `inbound.js` for `fellowByEmail`, `fellowByPhone`, `identity` and `inboundAuto`, and in `auth.js`). The columns needed are `id, name, email, phone, photo_url, host_org, city, role`; keep `inbound_auto` somewhere (it is one integer per fellow for the "Post mine automatically" switch).
 
-### 4. Inbound channels: all free, nothing new to subscribe to
+#### 4. Inbound channels: all free, nothing new to subscribe to
 
 Three channels, all on things that already exist. `docs/INBOUND.md` has the details (Slack scopes and event subscriptions, Email Routing, Google Voice, the caption → album rules, how senders are matched to fellows).
 
@@ -197,7 +252,7 @@ npx wrangler secret put SLACK_BOT_TOKEN        # Slack app > OAuth, xoxb-…
 
 **Image quality by channel.** In-app upload, Slack and email keep the original file. Texting does not: a photo sent to a Google Voice number travels as MMS, and MMS is carrier-compressed (typically to well under 1 MB, roughly 1–2 megapixels). RCS does not help here because Google Voice numbers do not support RCS, so an iPhone always falls back to MMS for them. The app compensates two ways: texted photos show a "Text · reduced" badge, and the sender gets a "Replace with the original" button in the lightbox that swaps in the full-quality file from their camera roll while keeping tags, reactions and comments (`bbreplacephoto`). The contact card carries the email address too, so "Share → Mail" is the one-tap full-quality route from a phone.
 
-## Smoke test after merging
+### Smoke test after merging
 
 Use two phones signed in as two different fellows, one of them a host.
 
@@ -206,24 +261,27 @@ Use two phones signed in as two different fellows, one of them a host.
 [ ] "Tag fellows" list shows the same photos and "org · city" lines as the Connect tab
 [ ] Propose an event (title, time, place, tag the other fellow) → it appears on phone 2 within 15 s
 [ ] RSVP Going on phone 2 → count updates on phone 1; react and comment both ways
-[ ] Set an event starting now; phone 2 taps "I was there" → phone 1 (host) sees it and confirms
-[ ] Host taps "Show check-in code"; phone 2 scans the QR → lands on basecamppulse.com/#bb-checkin-… → confirmed via QR
-[ ] Host taps "Get a new code"; phone 2 enters the 6-digit passcode → confirmed; the old passcode is rejected
+[ ] Set an event starting now; phone 2 taps "I was there" → counted at once on both phones (verification off, the default)
+[ ] (VERIFY_ATTENDANCE=true) phone 2 taps "I was there" → phone 1 (host) sees it and confirms
+[ ] (VERIFY_ATTENDANCE=true) host taps "Show check-in code"; phone 2 scans the QR → lands on basecamppulse.com/#bb-checkin-… → confirmed via QR
+[ ] (VERIFY_ATTENDANCE=true) host taps "Get a new code"; phone 2 enters the 6-digit passcode → confirmed; the old passcode is rejected
 [ ] Upload 2 photos to the event album from phone 2; thumbs show; tag phone 1's fellow → appears in their Tagged tab
 [ ] Open a photo, add a caption, tap "Save to Photos" on an iPhone → share sheet → Save Image → in the camera roll with the caption
 [ ] "Download all" on a laptop → zip of originals; "Download · N new" after adding one more photo
 [ ] Post a photo in the Slack channel with "#<event>" → it shows in the sender's review banner → Keep → in the event album
 [ ] Share → Mail a photo to photos@basecamppulse.com with "#<event>" in the subject → arrives full size in the event album
+[ ] Text "Trivia at the Page Thursday 7pm" to the Google Voice number (or post it in the Slack channel) → the event appears on the calendar with the sender as host; the bot replies with what it posted
 [ ] Text a photo to the Google Voice number from a phone on the roster → arrives (compressed) with the "Text · reduced" badge; "Replace with the original" swaps in the full file and keeps the tags
 [ ] GET /photos/<id>?size=orig returns the untouched file with Content-Disposition attachment
 ```
 
-## Known gaps and decisions for the DEV team
+### Known gaps and decisions for the DEV team
 
 - `resolveFellow()` in `worker/src/auth.js` is a dev stub; the merge is not done until it reads Pulse's session. `PULSE_SHARED_SECRET` is reserved for that and unused by the stub.
 - Roster: pick option A or B above. With neither, `load()` returns an empty roster and tagging breaks.
 - `IMAGES` binding is optional. Without it, `GET /photos/:id?size=full` returns the original bytes (fine on Wi-Fi, heavy on cellular for 10 MB originals). Thumbs are made on the phone at upload, so the grid is light either way.
 - Inbound photos sit as `pending` for the sender and are accepted automatically after 24 h on the next `bbload` (`PENDING_AUTO_ACCEPT` in `worker/src/bonding.js`). Inbound photos have no thumb (`thumb_key` NULL), so the grid serves the original for those until a thumb is generated; a small job or the IMAGES binding would fix that.
+- Attendance verification is off by default (`VERIFY_ATTENDANCE`). Flip the var to turn it on; no schema change, the tables and endpoints are always there.
 - Fellows can turn on "Post mine automatically" (`bb_fellows.inbound_auto`), which skips the review list entirely. Decide whether that should be the default.
 - Polling: the module calls `bbload` every 15 s per open tab (5 s within two hours of an event). `bbload` returns the whole dataset; fine for one cohort, worth a `since` parameter if it grows.
 - Google Voice is a personal-use product with no API and no RCS; the forward-to-Gmail route is the only automation, and texted photos are MMS-compressed (see step 4). If that ever becomes a problem, the Twilio handler is already in `inbound.js`.

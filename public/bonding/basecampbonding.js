@@ -6,10 +6,12 @@
  *
  * api is an object of Promise-returning functions (see docs/API.md); pulse-adapter/bonding.js maps it to Pulse's
  * /api endpoints and public/bonding/mock-api.js implements it in the browser for the standalone demo.
- *   load() -> { me, fellows, events, photos, inbound, serverTime }
+ *   load() -> { me, fellows, events, photos, inbound, features, serverTime }
  * Everything else is a write that returns the changed object. The module polls load() (15 s, 5 s around a live
  * event) and re-renders in place, so two phones see the same calendar within a few seconds.
  * Returns { reload(), openCheckinLink(code), destroy() }.
+ * opts.verifyAttendance (optional boolean) forces attendance verification on or off; by default the backend decides
+ * via load().features.verifyAttendance, and the default there is off.
  */
 (function (root) {
   "use strict";
@@ -226,6 +228,9 @@
     const qrBase = opts.qrBase || (location.origin + location.pathname);
     // opts.openConnect(fellow): the host page takes the fellow to their card on the Connect tab. Without it, a plain link.
     const openConnect = typeof opts.openConnect === "function" ? opts.openConnect : f => window.open(opts.connectUrl || "https://basecamppulse.com/", "_blank", "noopener");
+    // Attendance verification (host confirm, QR, passcode, late-claim proofs, vouches) is optional and OFF by default.
+    // The backend says which (api.load().features.verifyAttendance); opts.verifyAttendance forces it either way.
+    const verify = () => opts.verifyAttendance != null ? !!opts.verifyAttendance : !!(S.data && S.data.features && S.data.features.verifyAttendance);
     container.textContent = ""; container.classList.add("bb"); // the container is the themed root; sheets and the lightbox hang off it
     const ui = sheetHost(container);
     const S = { data: null, now: Date.now(), weekStart: startOfWeek(Date.now()), day: null, tab: "upcoming", ptab: "cohort", album: null, taggedOnly: false, error: null, open: null };
@@ -326,9 +331,9 @@
       const ways = [i.slackChannel ? ["post in ", h("code", { text: i.slackChannel })] : null, i.smsNumber ? ["text ", h("code", { text: fmtPhone(i.smsNumber) })] : null, i.email ? ["email ", h("code", { text: i.email })] : null].filter(Boolean);
       const joined = []; ways.forEach((w, k) => { if (k) joined.push(k === ways.length - 1 ? " or " : ", "); joined.push(w); });
       return h("div", { class: "bb-inbound" },
-        h("b", {}, icon("send"), "Send photos from your phone"),
+        h("b", {}, icon("send"), "Text Plans Bot a photo, or a plan"),
         h("span", {}, joined.length ? [joined[0] && String(joined[0][0]).charAt(0).toUpperCase() + String(joined[0][0]).slice(1), joined[0] && joined[0].slice(1), joined.slice(1)] : null,
-          ". Add ", h("code", { text: "#" + slugify((upcoming()[0] || { title: "event-name" }).title).split("-")[0] }), " to file it under an event, or nothing for the cohort album."),
+          ". Photos: add ", h("code", { text: "#" + slugify((upcoming()[0] || { title: "event-name" }).title).split("-")[0] }), " to file them under an event, or nothing for the cohort album. Plans: write what, when and where in plain English (\"Tacos at La Taqueria Friday 7pm\") and it goes on the calendar as your event."),
         (i.smsNumber || i.email) ? h("div", { class: "bb-actions" },
           h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", onclick: () => openContactSheet(i) }, icon("qr"), "Save the contact"),
           i.smsNumber ? h("a", { class: "bb-btn bb-btn-small", href: "sms:" + i.smsNumber }, icon("phone"), "Text it") : null,
@@ -337,10 +342,10 @@
           h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: "Post mine automatically" }), h("span", { class: "bb-row-sub", style: { whiteSpace: "normal" }, text: auto ? "On: your photos go straight into the album named in the caption." : "Off: your photos wait in a review list first (posted anyway after 24 h)." })),
           h("button", { class: "bb-tick", type: "button", "aria-pressed": auto, "aria-label": "Post my Slack and text photos automatically", onclick: () => { S.data.inbound.autoPost = !auto; render(); act(api.setInboundAuto(!auto), r => { if (r && "autoPost" in r) S.data.inbound.autoPost = !!r.autoPost; }); if (!auto && pendingMine().length) postAllInbound(); } }, icon("check"))));
     }
-    // The photo line as a contact: a vCard QR (iPhone and Android cameras offer "Add contact"), a .vcf, and sms:/mailto: links.
-    // Once it's a contact, sharing a photo to it from the camera roll is just "Share → Messages/Mail → Basecamp Bonding Photos".
+    // "Plans Bot" as a contact: a vCard QR (iPhone and Android cameras offer "Add contact"), a .vcf, and sms:/mailto: links.
+    // Once it's a contact, sharing a photo from the camera roll is "Share → Messages/Mail → Plans Bot", and texting it a plan posts an event.
     function vcard(i) {
-      const l = ["BEGIN:VCARD", "VERSION:3.0", "N:Photos;Basecamp Bonding;;;", "FN:Basecamp Bonding Photos", "ORG:Basecamp Pulse"];
+      const l = ["BEGIN:VCARD", "VERSION:3.0", "N:Bot;Plans;;;", "FN:Plans Bot", "NICKNAME:Flicks Bot", "ORG:Basecamp Pulse"];
       if (i.smsNumber) l.push("TEL;TYPE=CELL:" + i.smsNumber);
       if (i.email) l.push("EMAIL;TYPE=INTERNET:" + i.email);
       l.push("END:VCARD");
@@ -352,13 +357,18 @@
       if (root.PulseQR) { try { box.innerHTML = root.PulseQR.svg(card, { color: "#0b0b0b" }); } catch (e) { box.textContent = ""; add(box, h("p", { class: "bb-hint", text: "Use the buttons below." })); } }
       const vcfHref = i.contactUrl || URL.createObjectURL(new Blob([card], { type: "text/vcard" }));
       const content = h("div", { class: "bb-sheet-body" },
-        h("div", { class: "bb-intro" }, h("h2", { text: "Basecamp Bonding Photos" }), h("p", { text: "Save it as a contact once. After that, sharing a photo from your camera roll to \"Basecamp Bonding Photos\" in Messages" + (i.email ? " or Mail" : "") + " sends it straight to the album. Works on iPhone and Android." })),
+        h("div", { class: "bb-intro" }, h("h2", { text: "Save Plans Bot" }), h("p", { text: "One contact for both jobs. Share a photo from your camera roll to \"Plans Bot\" in Messages" + (i.email ? " or Mail" : "") + " and it lands in the album. Text it what, when and where in plain English and it posts the plan to the calendar. iPhone and Android." })),
         box, h("p", { class: "bb-qr-label", text: "Point another phone's camera here to add the contact" }),
+        h("ol", { class: "bb-steps" },
+          h("li", { text: "Open the Camera app and point it at the code (no need to take a photo)." }),
+          h("li", { text: "Tap the \"Add contact\" banner that pops up (Android: \"Add to contacts\")." }),
+          h("li", { text: "Keep the name Plans Bot, or call it Flicks Bot if you prefer, then tap Save." }),
+          h("li", { text: "Now share any photo to Plans Bot, or text it \"Tacos at La Taqueria Friday 7pm\"." })),
         h("div", { class: "bb-actions", style: { justifyContent: "center" } },
-          h("a", { class: "bb-btn bb-btn-primary", href: vcfHref, download: i.contactUrl ? null : "basecamp-bonding-photos.vcf" }, icon("user"), "Add to my contacts"),
+          h("a", { class: "bb-btn bb-btn-primary", href: vcfHref, download: i.contactUrl ? null : "plans-bot.vcf" }, icon("user"), "Add to my contacts"),
           i.smsNumber ? h("a", { class: "bb-btn", href: "sms:" + i.smsNumber + "?&body=" + encodeURIComponent("#cohort ") }, icon("phone"), "Text " + fmtPhone(i.smsNumber)) : null,
           i.email ? h("a", { class: "bb-btn", href: "mailto:" + i.email + "?subject=" + encodeURIComponent("#cohort") }, icon("send"), "Email " + i.email) : null),
-        h("p", { class: "bb-hint", text: "Put #event-name in the message (or the email subject) to file photos under an event. No tag means the cohort album." }));
+        h("p", { class: "bb-hint", text: "Photos: put #event-name in the message (or the email subject) to file them under an event; no tag means the cohort album. Plans: just say what, when and where." }));
       ui.open(content, "Save the contact");
     }
     // Everything waiting in the review list goes into the album it was routed to (caption → event, else cohort).
@@ -518,9 +528,15 @@
       const vouchesFor = id => e.vouches.filter(v => v.fellow_id === id).length;
       const myConfirmed = a && a.status === "confirmed";
       const viaWord = x => ({ tap: "Tapped \"I was there\"", host: x.fellow_id === e.host_id ? "Hosted" : "Confirmed by host", qr: "Checked in by QR", code: "Entered the passcode", photo: "Tagged in a photo", vouch: "Vouched for by 2 fellows" })[x.via] || "";
+      const v = verify();
       let cta = null, note = null;
       if (e.cancelled) note = null;
       else if (!started) note = h("div", { class: "bb-notice bb-notice-muted" }, icon("clock"), "\"I was there\" opens at " + fmtTime(e.starts_at - WINDOW_BEFORE) + (sameDay(e.starts_at, S.now) ? "" : " on " + fmtDay(e.starts_at)) + ".");
+      else if (!v) {
+        // Verification off: one tap, counted at once, any time after the event starts.
+        if (a && a.status === "confirmed") note = h("div", { class: "bb-notice" }, icon("check"), "You're on the list" + (a.late ? " (added later)" : "") + ".");
+        else cta = h("button", { class: "bb-btn bb-btn-primary bb-wide", type: "button", onclick: () => { e.attendance = e.attendance.filter(x => x.fellow_id !== me().id); e.attendance.push({ fellow_id: me().id, status: "confirmed", via: "tap", late: over, created_at: S.now, confirmed_at: S.now }); render(); act(api.attend(e.id), x => { patchEvent(x); ui.toast("You're on the list"); }); } }, icon("hand"), "I was there");
+      }
       else if (a) {
         if (a.status === "confirmed") note = h("div", { class: "bb-notice" }, icon("check"), "You're on the list" + (a.late ? " (added later)" : "") + ".");
         else if (a.status === "claimed") note = h("div", { class: "bb-notice bb-notice-muted" }, icon("clock"), "You tapped \"I was there\". " + first(e.host_id) + " will confirm.");
@@ -530,13 +546,14 @@
         host ? null : h("button", { class: "bb-btn bb-wide", type: "button", onclick: () => openPinEntry(e) }, icon("qr"), "Enter the host's passcode"));
       else if (over) cta = h("button", { class: "bb-btn bb-wide", type: "button", onclick: () => openLateClaim(e) }, icon("hand"), "I was there too");
       return h("div", { class: "bb-section" },
-        h("div", { class: "bb-section-head" }, h("p", { class: "bb-label", text: "Attendance · " + conf.length + " confirmed" }),
-          host && !e.cancelled && e.ends_at + WINDOW_AFTER >= S.now ? h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => openCheckinQR(e) }, icon("qr"), "Show check-in code") : null),
+        h("div", { class: "bb-section-head" }, h("p", { class: "bb-label", text: "Attendance · " + conf.length + (v ? " confirmed" : " there") }),
+          v && host && !e.cancelled && e.ends_at + WINDOW_AFTER >= S.now ? h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => openCheckinQR(e) }, icon("qr"), "Show check-in code") : null),
         note, cta,
         items.length ? h("ul", { class: "bb-list" }, items.sort((x, y) => (x.status === "confirmed" ? 0 : 1) - (y.status === "confirmed" ? 0 : 1) || x.created_at - y.created_at).map(x => {
           const f = fellow(x.fellow_id), ok = x.status === "confirmed";
           let action = null;
-          if (host && !ok && x.fellow_id !== me().id) action = h("span", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", text: "Confirm", onclick: () => { x.status = "confirmed"; x.via = "host"; render(); act(api.confirmAttendance(e.id, x.fellow_id, true), patchEvent); } }),
+          if (!v) action = h("span", { class: "bb-pill " + (ok ? "bb-pill-ok" : "bb-pill-pend"), text: ok ? "There" : "Waiting" });
+          else if (host && !ok && x.fellow_id !== me().id) action = h("span", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", text: "Confirm", onclick: () => { x.status = "confirmed"; x.via = "host"; render(); act(api.confirmAttendance(e.id, x.fellow_id, true), patchEvent); } }),
             h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", text: "Remove", onclick: () => { x.status = "denied"; render(); act(api.confirmAttendance(e.id, x.fellow_id, false), patchEvent); } }));
           else if (x.status === "pending" && myConfirmed && x.fellow_id !== me().id) {
             const did = e.vouches.some(v => v.fellow_id === x.fellow_id && v.voucher_id === me().id);
@@ -562,7 +579,7 @@
       const back = S.open;
       const conf = confirmed(e).map(a => a.fellow_id);
       const by = s => e.rsvps.filter(r => r.status === s).map(r => r.fellow_id);
-      const groups = [["There (confirmed)", conf], ["Going", by("going").filter(id => conf.indexOf(id) < 0)], ["Maybe", by("maybe")], ["Invited", e.invites.filter(id => !e.rsvps.some(r => r.fellow_id === id) && conf.indexOf(id) < 0)], ["Can't make it", by("no")]].filter(g => g[1].length);
+      const groups = [[verify() ? "There (confirmed)" : "There", conf], ["Going", by("going").filter(id => conf.indexOf(id) < 0)], ["Maybe", by("maybe")], ["Invited", e.invites.filter(id => !e.rsvps.some(r => r.fellow_id === id) && conf.indexOf(id) < 0)], ["Can't make it", by("no")]].filter(g => g[1].length);
       const content = h("div", { class: "bb-sheet-body" }, h("div", { class: "bb-intro" }, h("span", { class: "bb-when", text: fmtWhen(e, S.now) }), h("h2", { text: e.title }), h("p", { text: "Hosted by " + name(e.host_id) })),
         groups.length ? groups.map(g => h("div", { class: "bb-section" }, h("p", { class: "bb-label", text: g[0] + " · " + g[1].length }),
           h("ul", { class: "bb-list" }, g[1].map(id => { const f = fellow(id); return h("li", { class: "bb-row" }, h("button", { class: "bb-row-open", type: "button", onclick: () => openFellow(id, () => openAttendees(eventId)) }, avatar(f, "md", conf.indexOf(id) >= 0), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: f.name + (id === e.host_id ? " · host" : "") }), f.sub ? h("span", { class: "bb-row-sub", text: f.sub }) : null))); })))) :

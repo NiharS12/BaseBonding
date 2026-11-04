@@ -48,6 +48,7 @@ Request: `{}`
   "events": [ <Event>, … ],            // all events incl. cancelled (cancelled:true), ordered by starts_at
   "photos": [ <Photo>, … ],            // status 'ok' for everyone + my own 'pending' inbound photos, newest first
   "inbound": { "slackChannel": "#cohort-photos", "smsNumber": "+1415…", "email": "photos@…", "contactUrl": "/bonding/contact.vcf", "autoPost": false },
+  "features": { "verifyAttendance": false },   // wrangler var VERIFY_ATTENDANCE; off by default, see bbattend
   "serverTime": "2026-11-04T08:43:09.607Z"
 }
 ```
@@ -114,8 +115,8 @@ curl -X POST localhost:8787/api/bbcreateevent -H 'X-Dev-Fellow: f0000000-0000-40
 
 | endpoint | request | rule | response |
 |---|---|---|---|
-| `bbattend` | `{ "eventId" }` | only from 30 min before `starts_at` to 48 h after `ends_at`, else `window_closed`. Sets `claimed` via `tap` (idempotent if already claimed/confirmed). | Event |
-| `bbattendlate` | `{ "eventId", "photoId"? }` | after the window. If `photoId` is given and the caller is tagged in it (and it belongs to the event), or the caller is tagged in any photo of the event → `confirmed` via `photo`. Otherwise `pending` via `tap`, `late: true`. Inside the window it behaves like `bbattend`; before the window → `window_closed`. | Event |
+| `bbattend` | `{ "eventId" }` | **Verification off (default):** any time from 30 min before `starts_at` onward → `confirmed` via `tap` at once (`late: true` if after 48 h past `ends_at`); before that → `window_closed`. **Verification on:** only from 30 min before `starts_at` to 48 h after `ends_at`, else `window_closed`; sets `claimed` via `tap` for the host to confirm (idempotent if already claimed/confirmed). | Event |
+| `bbattendlate` | `{ "eventId", "photoId"? }` | after the window. If `photoId` is given and the caller is tagged in it (and it belongs to the event), or the caller is tagged in any photo of the event → `confirmed` via `photo`. Otherwise `pending` via `tap`, `late: true`. Inside the window, or with verification off, it behaves like `bbattend`; before the window → `window_closed`. | Event |
 | `bbconfirmattendance` | `{ "eventId", "fellowId", "ok": true\|false }` host only | `ok:true` → `confirmed` via `host`. `ok:false` → `denied` for late claims, row removed for in-window claims. | Event |
 | `bbvouch` | `{ "eventId", "fellowId" }` | caller must have `confirmed` attendance (`not_allowed`); target must be `claimed`/`pending` (`already` if confirmed); one vouch per voucher (`already`). 2 distinct vouches → `confirmed` via `vouch`. | Event |
 | `bbnewcheckincode` | `{ "eventId" }` host only | rotates both the QR token and the 6-digit passcode | `{ "code": "<eventId>-<token>", "pin": "483921" }` |

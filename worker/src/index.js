@@ -42,13 +42,13 @@ const API = {
   bbreplacephoto: bonding.replacePhoto,
 };
 
-// The photo line as a contact card: fellows save it once, then text or email photos to it from any phone.
+// "Plans Bot" as a contact card: fellows save it once, then text or email it photos (→ albums) or plans in plain English (→ calendar).
 function contactCard(env) {
-  const lines = ['BEGIN:VCARD', 'VERSION:3.0', 'N:Photos;Basecamp Bonding;;;', 'FN:Basecamp Bonding Photos', 'ORG:Basecamp Pulse'];
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', 'N:Bot;Plans;;;', 'FN:Plans Bot', 'NICKNAME:Flicks Bot', 'ORG:Basecamp Pulse'];
   if (env.INBOUND_SMS_NUMBER) lines.push('TEL;TYPE=CELL:' + env.INBOUND_SMS_NUMBER);
   if (env.INBOUND_EMAIL) lines.push('EMAIL;TYPE=INTERNET:' + env.INBOUND_EMAIL);
-  lines.push('NOTE:Text or email photos here. Add #event-name to file them under an event.', 'END:VCARD');
-  return new Response(lines.join('\r\n') + '\r\n', { headers: { 'content-type': 'text/vcard; charset=utf-8', 'content-disposition': 'inline; filename="basecamp-bonding-photos.vcf"', 'cache-control': 'public, max-age=86400' } });
+  lines.push('NOTE:Text or email photos here (add #event-name to file them under an event), or a plan in plain English like "Tacos at La Taqueria Friday 7pm" to put it on the Bonding calendar.', 'END:VCARD');
+  return new Response(lines.join('\r\n') + '\r\n', { headers: { 'content-type': 'text/vcard; charset=utf-8', 'content-disposition': 'inline; filename="plans-bot.vcf"', 'cache-control': 'public, max-age=86400' } });
 }
 
 export default {

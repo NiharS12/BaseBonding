@@ -195,6 +195,7 @@ export async function load({ env, me }) {
     events,
     photos,
     inbound: { slackChannel: env.INBOUND_SLACK_CHANNEL || '', smsNumber: env.INBOUND_SMS_NUMBER || '', email: env.INBOUND_EMAIL || '', contactUrl: '/bonding/contact.vcf', autoPost: !!(await q(env, 'SELECT inbound_auto FROM bb_fellows WHERE id = ?1', me.id).first())?.inbound_auto },
+    features: { verifyAttendance: verifyOn(env) },
     serverTime: nowIso(),
   };
 }
@@ -284,6 +285,9 @@ export async function invite({ env, me, body }) {
 
 /* ─────────────────────────────── attendance ─────────────────────────────── */
 
+// Optional, off by default (wrangler.toml VERIFY_ATTENDANCE). Off: "I was there" is a one-tap self-report that counts at once.
+const verifyOn = env => String(env.VERIFY_ATTENDANCE || '').toLowerCase() === 'true';
+
 function windowState(e, now = Date.now()) {
   const opens = Date.parse(e.starts_at) - WINDOW_BEFORE;
   const closes = Date.parse(e.ends_at) + WINDOW_AFTER;
@@ -305,8 +309,15 @@ async function setAttendance(env, eventId, fellowId, status, via, late, confirme
 
 export async function attend({ env, me, body }) {
   const e = await eventRow(env, body.eventId);
-  if (windowState(e) !== 'open') throw new ApiError('window_closed', 409);
+  const state = windowState(e);
+  if (state === 'early') throw new ApiError('window_closed', 409);
   const cur = await attendanceRow(env, e.id, me.id);
+  if (!verifyOn(env)) {
+    // Verification off: counted at once, any time after the window opens; "late" only labels it as added after 48 h.
+    if (!cur || cur.status !== 'confirmed') await setAttendance(env, e.id, me.id, 'confirmed', 'tap', state === 'closed', true);
+    return getEvent(env, me.id, e.id);
+  }
+  if (state !== 'open') throw new ApiError('window_closed', 409);
   if (!cur || cur.status === 'denied') await setAttendance(env, e.id, me.id, 'claimed', 'tap', false, false);
   // already claimed/confirmed: idempotent
   return getEvent(env, me.id, e.id);
@@ -328,7 +339,7 @@ export async function attendLate({ env, me, body }) {
   const e = await eventRow(env, body.eventId);
   const state = windowState(e);
   if (state === 'early') throw new ApiError('window_closed', 409);
-  if (state === 'open') return attend({ env, me, body }); // still inside the window: a normal claim
+  if (state === 'open' || !verifyOn(env)) return attend({ env, me, body }); // inside the window, or verification off: a normal claim
   const cur = await attendanceRow(env, e.id, me.id);
   if (cur && cur.status === 'confirmed') return getEvent(env, me.id, e.id);
   const proven = await taggedInEventPhoto(env, e.id, me.id, body.photoId);

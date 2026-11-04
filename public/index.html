@@ -61,6 +61,8 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
     <label>You are <select id="who"></select></label>
     <button type="button" id="simSlack">Simulate a Slack photo</button>
     <button type="button" id="simSms">Simulate a texted photo</button>
+    <button type="button" id="simPlan">Simulate a texted plan</button>
+    <label id="verifyWrap" title="Off by default: one tap counts. On: host confirm, QR, 6-digit passcode, late-claim proofs and vouches."><input type="checkbox" id="verify"> Verify attendance</label>
     <button type="button" id="reset">Reset data</button>
   </div>
 
@@ -68,6 +70,7 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
 </div>
 
 <script src="/bonding/qr.js"></script>
+<script src="/bonding/planparse.js"></script>
 <script src="/bonding/shape.js"></script>
 <script src="/bonding/mock-api.js"></script>
 <script src="/bonding/worker-api.js"></script>
@@ -92,13 +95,23 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
   var el = document.getElementById('basecampbonding');
   var bb = BasecampBonding.mount(el, { api: api, qrBase: location.origin + location.pathname });
 
+  var verify = document.getElementById('verify');
   api.load().then(function (d) {
     d.fellows.forEach(function (f) { var o = document.createElement('option'); o.value = f.id; o.textContent = f.name; o.selected = f.id === meId; who.appendChild(o); });
+    verify.checked = !!(d.features && d.features.verifyAttendance);
   });
+  // Attendance verification is optional and off by default. Mock: this tick box. Worker: VERIFY_ATTENDANCE in wrangler.toml / .dev.vars.
+  verify.addEventListener('change', function () { if (useWorker) { verify.checked = !verify.checked; alert('With the Worker, set VERIFY_ATTENDANCE = "true" in worker/wrangler.toml (or .dev.vars) and restart wrangler.'); return; } api._setVerify(verify.checked); bb.reload(); });
   who.addEventListener('change', function () { sessionStorage.setItem(meKey, who.value); api._switchTo(who.value); bb.reload(); });
   var sim = function (source) { return function () { if (useWorker) { alert('With the Worker, run worker/scripts/test-inbound.sh to post a signed Slack or Twilio webhook.'); return; } api._simulateInbound(source, prompt('Caption (add #karaoke, #dolores… to pick an event):', source === 'slack' ? '#dolores best day' : '') || ''); }; };
   document.getElementById('simSlack').addEventListener('click', sim('slack'));
   document.getElementById('simSms').addEventListener('click', sim('sms'));
+  document.getElementById('simPlan').addEventListener('click', function () {
+    if (useWorker) { alert('With the Worker, run worker/scripts/test-inbound.sh: it posts a signed text-only Slack message and a text-only Twilio SMS, and both become events.'); return; }
+    var text = prompt('Text Plans Bot a plan in plain English (what, when, where):', 'Tacos at La Taqueria Friday 7pm'); if (!text) return;
+    api._simulatePlan(text).then(function (r) { alert('Plans Bot replied:\n\nPosted to Bonding: ' + r.summary + '. Open the tab to edit it or tag people.'); bb.reload(); },
+      function () { alert('Plans Bot replied:\n\nI couldn\'t find a day or time in that. Try something like "Tacos at La Taqueria Friday 7pm".'); });
+  });
   document.getElementById('reset').addEventListener('click', function () { if (useWorker) { alert('Run `npm run db:reset` in worker/ to reseed the local database.'); return; } if (confirm('Reset the demo data in this browser?')) { api._reset(); location.reload(); } });
 
   // A scanned check-in code: /#bb-checkin-<eventId>-<token>, same shape Pulse's connect links use.

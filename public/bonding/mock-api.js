@@ -84,24 +84,27 @@
     ];
     var picnic = events[3].id, bowling = events[4].id;
     var photos = [];
-    var ph = function (i, eventId, uploader, tags, source, created) {
-      var data = paint(1200, 900, i, "");
-      photos.push({ id: uid(), event_id: eventId, uploader_id: uploader, filename: "IMG_" + (4000 + i) + ".jpg", content_type: "image/jpeg",
-        bytes: Math.round(data.length * 0.75), width: 1200, height: 900, caption: "", taken_at: created - 20 * 60e3, source: source || "app", status: "ok",
-        created_at: created, tags: tags, reactions: [], comments: [], _data: data });
+    // Real sample photos from public/bonding/demo (demo only; not copied into Pulse). [file, w, h, bytes]
+    var PIC = { "dolores-1": ["dolores-1.jpg", 300, 300, 22615], "dolores-2": ["dolores-2.jpg", 425, 470, 61850], "dolores-3": ["dolores-3.jpg", 640, 479, 32382], "dolores-4": ["dolores-4.jpg", 402, 497, 49427],
+      "bowling-1": ["bowling-1.jpg", 510, 392, 41258], "bowling-2": ["bowling-2.webp", 1920, 1080, 202370], "sf-1": ["sf-1.jpg", 365, 547, 33010], "sf-2": ["sf-2.jpg", 1200, 1303, 248036], "sf-3": ["sf-3.jpg", 1600, 899, 259198] };
+    var ph = function (pic, eventId, uploader, tags, source, created, caption) {
+      var f = PIC[pic];
+      photos.push({ id: uid(), event_id: eventId, uploader_id: uploader, filename: f[0], content_type: /webp$/.test(f[0]) ? "image/webp" : "image/jpeg",
+        bytes: f[3], width: f[1], height: f[2], caption: caption || "", taken_at: created - 20 * 60e3, source: source || "app", status: "ok",
+        created_at: created, tags: tags, reactions: [], comments: [], _data: "/bonding/demo/" + f[0] });
     };
-    ph(1, picnic, "f3", ["f1", "f2", "f3"], "app", t - 3 * D - 2 * H);
-    ph(2, picnic, "f2", ["f4"], "app", t - 3 * D - 1.5 * H);
-    ph(3, picnic, "f4", ["f1", "f4", "f7"], "slack", t - 3 * D - H);
-    ph(4, picnic, "f7", [], "app", t - 3 * D - 0.5 * H);
-    ph(5, bowling, "f6", ["f1", "f5", "f6", "f8"], "app", t - 6 * D - H);
-    ph(6, bowling, "f1", ["f5"], "sms", t - 6 * D - 0.5 * H);
-    ph(7, null, "f8", ["f8", "f2"], "app", t - 8 * D);
-    ph(8, null, "f5", [], "app", t - 9 * D);
-    ph(9, null, "f2", ["f1"], "app", t - 10 * D);
+    ph("dolores-1", picnic, "f3", ["f1", "f2", "f3"], "app", t - 3 * D - 2 * H, "Upper lawn crew");
+    ph("dolores-2", picnic, "f2", ["f4"], "app", t - 3 * D - 1.5 * H);
+    ph("dolores-3", picnic, "f4", ["f1", "f4", "f7"], "slack", t - 3 * D - H);
+    ph("dolores-4", picnic, "f7", [], "app", t - 3 * D - 0.5 * H, "Golden hour");
+    ph("bowling-1", bowling, "f6", ["f1", "f5", "f6", "f8"], "app", t - 6 * D - H);
+    ph("bowling-2", bowling, "f1", ["f5"], "sms", t - 6 * D - 0.5 * H);
+    ph("sf-1", null, "f8", ["f8", "f2"], "app", t - 8 * D, "First week in the city");
+    ph("sf-2", null, "f5", [], "app", t - 9 * D);
+    ph("sf-3", null, "f2", ["f1"], "app", t - 10 * D, "View from the walk back");
     photos[0].reactions = [{ emoji: "❤️", fellow_id: "f2" }, { emoji: "🔥", fellow_id: "f4" }];
     photos[0].comments = [{ id: uid(), fellow_id: "f2", text: "Frame this one", created_at: t - 3 * D, reactions: [] }];
-    return { fellows: FELLOWS, events: events, photos: photos, inbound: { slackChannel: "#cohort-photos", smsNumber: "+14155550199", email: "photos@basecamppulse.com", contactUrl: null }, autoPost: {} };
+    return { fellows: FELLOWS, events: events, photos: photos, inbound: { slackChannel: "#cohort-photos", smsNumber: "+14155550199", email: "photos@basecamppulse.com", contactUrl: null }, autoPost: {}, features: { verifyAttendance: false } };
   }
 
   function create(opts) {
@@ -109,7 +112,7 @@
     var meId = opts.me || "f1";
     var state = null;
     try { state = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
-    if (!state || state.v !== 6) { state = seedState(); state.v = 6; save(); }
+    if (!state || state.v !== 7) { state = seedState(); state.v = 7; save(); }
     var bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(CH) : null;
     var listeners = [];
     if (bc) bc.onmessage = function () { try { state = JSON.parse(localStorage.getItem(KEY)); } catch (e) {} listeners.forEach(function (f) { f(); }); };
@@ -125,10 +128,11 @@
     var touch = function (e) { e.updated_at = now(); };
     function windowOpen(e) { var t = now(); return t >= e.starts_at - 30 * 60e3 && t <= e.ends_at + 48 * H; }
     function att(e, fid) { return e.attendance.find(function (a) { return a.fellow_id === fid; }); }
+    function verifyOn() { return !!(state.features && state.features.verifyAttendance); } // off by default; demo bar "Verify attendance"
     function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
 
     var api = {
-      load: function () { return latency({ me: me(), fellows: state.fellows, events: state.events.map(withCounts), photos: state.photos.map(pub), inbound: Object.assign({}, state.inbound, { autoPost: !!(state.autoPost || {})[meId] }), serverTime: now() }); },
+      load: function () { return latency({ me: me(), fellows: state.fellows, events: state.events.map(withCounts), photos: state.photos.map(pub), inbound: Object.assign({}, state.inbound, { autoPost: !!(state.autoPost || {})[meId] }), features: { verifyAttendance: verifyOn() }, serverTime: now() }); },
       setInboundAuto: function (on) { state.autoPost = state.autoPost || {}; state.autoPost[meId] = !!on; save(); return latency({ autoPost: !!on }); },
       onChange: function (fn) { listeners.push(fn); },
       createEvent: function (f) {
@@ -141,9 +145,17 @@
       cancelEvent: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); e.cancelled = true; touch(e); save(); return latency(withCounts(e)); },
       rsvp: function (id, status) { var e = event(id); e.rsvps = e.rsvps.filter(function (r) { return r.fellow_id !== meId; }); if (status && status !== "none") e.rsvps.push({ fellow_id: meId, status: status }); touch(e); save(); return latency(withCounts(e)); },
       invite: function (id, ids) { var e = event(id); ids.forEach(function (x) { if (e.invites.indexOf(x) < 0) e.invites.push(x); }); touch(e); save(); return latency(withCounts(e)); },
-      attend: function (id) { var e = event(id); if (!windowOpen(e)) throw err("window_closed"); var a = att(e, meId); if (a) throw err("already"); e.attendance.push({ fellow_id: meId, status: e.host_id === meId ? "confirmed" : "claimed", via: e.host_id === meId ? "host" : "tap", late: false, created_at: now() }); touch(e); save(); return latency(withCounts(e)); },
+      attend: function (id) {
+        var e = event(id); if (now() < e.starts_at - 30 * 60e3) throw err("window_closed");
+        var a = att(e, meId);
+        if (!verifyOn()) { // off: counted at once, any time after the window opens
+          if (a && a.status === "confirmed") return latency(withCounts(e));
+          if (a) e.attendance.splice(e.attendance.indexOf(a), 1);
+          e.attendance.push({ fellow_id: meId, status: "confirmed", via: "tap", late: !windowOpen(e), created_at: now(), confirmed_at: now() }); touch(e); save(); return latency(withCounts(e));
+        }
+        if (!windowOpen(e)) throw err("window_closed"); if (a) throw err("already"); e.attendance.push({ fellow_id: meId, status: e.host_id === meId ? "confirmed" : "claimed", via: e.host_id === meId ? "host" : "tap", late: false, created_at: now() }); touch(e); save(); return latency(withCounts(e)); },
       attendLate: function (id, o) {
-        var e = event(id); o = o || {}; if (att(e, meId)) throw err("already");
+        var e = event(id); o = o || {}; if (!verifyOn() || windowOpen(e)) return api.attend(id); if (att(e, meId)) throw err("already");
         var tagged = state.photos.some(function (p) { return p.event_id === id && p.tags.indexOf(meId) >= 0 && (!o.photoId || p.id === o.photoId); });
         e.attendance.push({ fellow_id: meId, status: tagged ? "confirmed" : "pending", via: tagged ? "photo" : "tap", late: true, created_at: now(), confirmed_at: tagged ? now() : null });
         touch(e); save(); return latency(withCounts(e));
@@ -198,13 +210,21 @@
       discardInbound: function (id) { return api.deletePhoto(id); },
       // Demo helpers (not part of the contract)
       _switchTo: function (id) { meId = id; },
+      // Demo bar "Simulate a texted plan": the same parser the Worker uses, the event hosted by whoever "You are".
+      _simulatePlan: function (text) {
+        var P = (typeof window !== "undefined" ? window : globalThis).BasecampBondingPlan; var r = P && P.parse(text, now());
+        if (!r) return Promise.reject(err("no_plan"));
+        return api.createEvent({ title: r.title, starts_at: r.starts_at, ends_at: r.ends_at, location: r.location, description: "Sent by text from " + me().name + ": \"" + String(text).trim().slice(0, 300) + "\"" })
+          .then(function (e) { return { event: e, summary: r.title + " · " + r.when + (r.location ? " · " + r.location : "") }; });
+      },
+      _setVerify: function (on) { state.features = state.features || {}; state.features.verifyAttendance = !!on; save(); },
       _simulateInbound: function (source, caption) {
         var m = /#([a-z0-9-]+)/i.exec(caption || ""); var ev = null;
         if (m && m[1] !== "cohort") ev = state.events.find(function (e) { return slug(e.title).indexOf(m[1].toLowerCase()) === 0; });
         var p = { id: uid(), event_id: ev ? ev.id : null, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: (caption || "").replace(/#\S+/g, "").trim(), source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
         state.photos.unshift(p); save(); return latency(pub(p));
       },
-      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 6; save(); }
+      _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 7; save(); }
     };
     // A real backend always answers with a Promise; make the mock's synchronous throws behave the same way.
     Object.keys(api).forEach(function (k) { var fn = api[k]; if (k === "onChange" || k === "photoUrl" || k.charAt(0) === "_") return; api[k] = function () { try { return Promise.resolve(fn.apply(api, arguments)); } catch (e) { return Promise.reject(e); } }; });

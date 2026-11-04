@@ -9,10 +9,46 @@
 
 import { ApiError, json, uuid, nowIso, slugify, normalizePhone, extFromType, hmac, timingSafeEqual, MAX_PHOTO_BYTES } from './util.js';
 import PostalMime from 'postal-mime';
+import { createEvent } from './bonding.js';
+import '../../public/bonding/planparse.js'; // globalThis.BasecampBondingPlan, the same parser the browser demo uses
 
 const SLACK_MAX_AGE = 5 * 60; // seconds
 const FUZZY_DAYS = 3;
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+
+/* ─────────────────────────── plain-English plans ───────────────────────────
+   A text-only message ("Tacos at La Taqueria Friday 7pm", or "what: … when: … where: …") becomes an event hosted by
+   the sender, exactly as if they had tapped "Propose an event". Works for texts (Twilio or Google Voice → email),
+   emails and Slack messages. Times are read in PLAN_TIMEZONE (the cohort's zone), since Workers run in UTC. */
+
+function zoneOffsetMs(tz, at) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(at));
+    const g = (t) => Number(parts.find((p) => p.type === t).value);
+    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')) - Math.floor(at / 1000) * 1000;
+  } catch { return 0; }
+}
+
+export function parsePlan(env, text, now = Date.now()) {
+  const tz = env.PLAN_TIMEZONE || 'America/Los_Angeles';
+  const off = zoneOffsetMs(tz, now);
+  // The parser works in the runtime's local zone (UTC here): shift "now" into the cohort's zone, parse, shift back.
+  const r = globalThis.BasecampBondingPlan.parse(text, now + off);
+  if (!r) return null;
+  const starts = r.starts_at - zoneOffsetMs(tz, r.starts_at - off), ends = r.ends_at - zoneOffsetMs(tz, r.ends_at - off);
+  const when = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(starts));
+  return { title: r.title, location: r.location, starts_at: new Date(starts).toISOString(), ends_at: new Date(ends).toISOString(), when };
+}
+
+async function postPlan(env, fellow, text, source) {
+  const p = parsePlan(env, text);
+  if (!p) return null;
+  const e = await createEvent({ env, me: fellow, body: { title: p.title, starts_at: p.starts_at, ends_at: p.ends_at, location: p.location || null,
+    description: `Sent by ${source} from ${fellow.name}: "${String(text).trim().slice(0, 300)}"` } });
+  return { event: e, summary: `${p.title} · ${p.when}${p.location ? ' · ' + p.location : ''}` };
+}
+
+const PLAN_HELP = 'Text me a photo to add it to an album (add #event-name to pick one), or a plan in plain English, like "Tacos at La Taqueria Friday 7pm", and I\'ll put it on the Bonding calendar.';
 
 /* ────────────────────────────── album routing ───────────────────────────── */
 
@@ -182,7 +218,12 @@ export async function handleSlack(request, env) {
     if (files.length) await slackReply(env, event, "I couldn't match you to a Pulse fellow. Reply with your Pulse email and I'll link you.");
     return json({ ok: true, skipped: 'unknown_user', files: files.length });
   }
-  if (!files.length) return json({ ok: true, skipped: 'no_images' });
+  if (!files.length) {
+    const plan = await postPlan(env, fellow, event.text, 'Slack');
+    if (!plan) return json({ ok: true, skipped: 'no_images' });
+    await slackReply(env, event, `Posted to Bonding: ${plan.summary}. Open the tab to edit it or tag people.`);
+    return json({ ok: true, event: plan.event.id, title: plan.event.title });
+  }
 
   const route = await routeCaption(env, event.text);
   const stored = [];
@@ -254,7 +295,10 @@ export async function handleTwilio(request, env) {
   }
 
   const n = Math.min(Number(params.NumMedia || 0), 10);
-  if (!n) return twiml('Text me a photo (MMS) to add it to an album. Add #cohort or #<event> to choose.');
+  if (!n) {
+    const plan = await postPlan(env, fellow, body, 'text');
+    return twiml(plan ? `Posted to Bonding: ${plan.summary}. Open the tab to edit it or tag people.` : PLAN_HELP);
+  }
 
   const route = await routeCaption(env, body);
   let stored = 0;
@@ -328,7 +372,12 @@ export async function handleEmail(message, env, ctx) {
   if (channel === 'sms') await remember(env, 'sms', externalId, fellow.id);
 
   const images = (email.attachments || []).filter((a) => /^image\//i.test(a.mimeType || '') && a.content);
-  if (!images.length) { message.setReject('No photo attached. Attach images (any size up to 25 MB each) and add #event-name to the subject to pick an album.'); return; }
+  if (!images.length) {
+    const text = emailCaption(email, isGv) + '\n' + String(email.text || '');
+    const plan = await postPlan(env, fellow, text, channel === 'sms' ? 'text' : 'email');
+    if (plan) { console.log(`email: plan from ${fellow.name} → ${plan.summary}`); return; }
+    message.setReject('No photo attached and no plan I could read. Attach images (up to 25 MB each) with #event-name in the subject, or write a plan like "Tacos at La Taqueria Friday 7pm".'); return;
+  }
 
   const route = await routeCaption(env, emailCaption(email, isGv));
   let stored = 0;

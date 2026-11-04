@@ -25,6 +25,11 @@ not_found_handling = "single-page-application"
 INBOUND_SLACK_CHANNEL = "#cohort-photos"
 INBOUND_SMS_NUMBER = ""          # e.g. "+14155550123": a Twilio number, or a free Google Voice number that forwards MMS to INBOUND_EMAIL
 INBOUND_EMAIL = ""               # e.g. "photos@basecamppulse.com": a Cloudflare Email Routing address pointed at this Worker (free)
+# Attendance verification is optional and OFF by default: "I was there" counts at once, no host confirm, QR, passcode,
+# late-claim proof or vouches. Set to "true" to turn all of that on (no schema change; the tables are always there).
+VERIFY_ATTENDANCE = "false"
+# Plain-English plans texted, emailed or Slacked in ("Tacos at La Taqueria Friday 7pm") become events. Times are read in this zone.
+PLAN_TIMEZONE = "America/Los_Angeles"
 
 [[d1_databases]]
 binding = "DB"

@@ -76,6 +76,19 @@ SIG=$(printf '%s' "$DATA" | openssl dgst -sha1 -hmac "$TWILIO_AUTH_TOKEN" -binar
 ARGS2=(); for e in "${P2[@]}"; do ARGS2+=(--data-urlencode "$e"); done
 curl -s -X POST "$URL" -H "X-Twilio-Signature: $SIG" "${ARGS2[@]}"; echo
 
+echo "== 6b. Twilio text-only PLAN from Ada (expect TwiML 'Posted to Bonding: Trivia · …')"
+declare -a P3=( "AccountSid=ACtest" "Body=Trivia at the Page Thursday 7pm" "From=+14155550101" "NumMedia=0" "To=+14155550199" )
+DATA="$URL"; for kv in $(printf '%s\n' "${P3[@]}" | cut -d= -f1 | sort); do for e in "${P3[@]}"; do [ "${e%%=*}" = "$kv" ] && DATA+="${e%%=*}${e#*=}"; done; done
+SIG=$(printf '%s' "$DATA" | openssl dgst -sha1 -hmac "$TWILIO_AUTH_TOKEN" -binary | base64)
+ARGS3=(); for e in "${P3[@]}"; do ARGS3+=(--data-urlencode "$e"); done
+curl -s -X POST "$URL" -H "X-Twilio-Signature: $SIG" "${ARGS3[@]}"; echo
+
+echo "== 6c. Slack text-only PLAN from U0TESTADA (expect {ok, event, title})"
+TS=$(date +%s)
+BODY="{\"type\":\"event_callback\",\"team_id\":\"T0TEST\",\"event\":{\"type\":\"message\",\"user\":\"U0TESTADA\",\"channel\":\"C0COHORT\",\"channel_type\":\"channel\",\"ts\":\"$TS.000200\",\"text\":\"what: board games when: tomorrow 6-10pm where: Ada's place\"}}"
+SIG="v0=$(printf '%s' "v0:$TS:$BODY" | openssl dgst -sha256 -hmac "$SLACK_SIGNING_SECRET" | sed 's/^.* //')"
+curl -s -X POST "$BASE/hooks/slack" -H 'content-type: application/json' -H "X-Slack-Request-Timestamp: $TS" -H "X-Slack-Signature: $SIG" --data "$BODY"; echo
+
 echo "== 7. Ada's pending inbound photos via POST /api/bbload"
 curl -s -X POST "$BASE/api/bbload" -H "X-Dev-Fellow: $ADA" -H 'content-type: application/json' -d '{}' \
   | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const p=(j.photos||[]).filter(p=>p.status==="pending");console.log(JSON.stringify(p.map(({id,source,event_id,caption,filename,bytes,hasThumb})=>({id,source,event_id,caption,filename,bytes,hasThumb})),null,1));})'
