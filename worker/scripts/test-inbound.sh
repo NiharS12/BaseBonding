@@ -47,8 +47,9 @@ BODY=$(cat <<JSON
 JSON
 )
 SIG="v0=$(printf '%s' "v0:$TS:$BODY" | openssl dgst -sha256 -hmac "$SLACK_SIGNING_SECRET" | sed 's/^.* //')"
-curl -s -X POST "$BASE/hooks/slack" -H 'content-type: application/json' \
+curl -s -X POST "$BASE/hooks/slack" -H 'content-type: application/json' -H 'X-BB-Sync: 1' \
   -H "X-Slack-Request-Timestamp: $TS" -H "X-Slack-Signature: $SIG" --data "$BODY"; echo
+# (X-BB-Sync makes the Worker finish before answering; real Slack deliveries are answered at once and processed in waitUntil.)
 
 echo "== 3. Slack with a WRONG signature (expect 401 bad_signature)"
 curl -s -o /dev/stderr -w 'HTTP %{http_code}\n' -X POST "$BASE/hooks/slack" -H 'content-type: application/json' \
@@ -87,7 +88,7 @@ echo "== 6c. Slack text-only PLAN from U0TESTADA (expect {ok, event, title})"
 TS=$(date +%s)
 BODY="{\"type\":\"event_callback\",\"team_id\":\"T0TEST\",\"event\":{\"type\":\"message\",\"user\":\"U0TESTADA\",\"channel\":\"C0COHORT\",\"channel_type\":\"channel\",\"ts\":\"$TS.000200\",\"text\":\"what: board games when: tomorrow 6-10pm where: Ada's place\"}}"
 SIG="v0=$(printf '%s' "v0:$TS:$BODY" | openssl dgst -sha256 -hmac "$SLACK_SIGNING_SECRET" | sed 's/^.* //')"
-curl -s -X POST "$BASE/hooks/slack" -H 'content-type: application/json' -H "X-Slack-Request-Timestamp: $TS" -H "X-Slack-Signature: $SIG" --data "$BODY"; echo
+curl -s -X POST "$BASE/hooks/slack" -H 'content-type: application/json' -H 'X-BB-Sync: 1' -H "X-Slack-Request-Timestamp: $TS" -H "X-Slack-Signature: $SIG" --data "$BODY"; echo
 
 echo "== 7. Ada's pending inbound photos via POST /api/bbload"
 curl -s -X POST "$BASE/api/bbload" -H "X-Dev-Fellow: $ADA" -H 'content-type: application/json' -d '{}' \

@@ -28,7 +28,8 @@ swaps for Pulse's session lookup. Until then it accepts `Authorization: Bearer d
 | `bad_code` | 400/404 | malformed / unknown check-in code |
 | `slow_down` | 429 | more than 5 comments in 10 s |
 | `already` | 409 | duplicate vouch, vouching for an already confirmed attendee |
-| `bad_id`, `bad_time`, `bad_status`, `bad_target`, `bad_emoji`, `bad_file`, `bad_tags`, `bad_json` | 400 | malformed input |
+| `bad_id`, `bad_time`, `bad_status`, `bad_target`, `bad_emoji`, `bad_file`, `bad_tags`, `bad_json` | 400 | malformed input (`bad_file`: not an image, or no file) |
+| `not_found`, `method`, `bad_content_type` | 404 / 405 / 415 | unknown `/api/bb…` name, non-POST, body that is neither JSON nor multipart |
 | `server_error` | 500 | unhandled |
 
 All ids are uuid strings; all times are ISO-8601 UTC. Fellow ids are the keys everywhere
@@ -70,7 +71,7 @@ Request: `{}`
   "comments":   [ { "id": "c0…01", "target_type": "event", "target_id": "e0…01", "fellow_id": "f0…02",
                     "text": "…", "created_at": "…", "reactions": [ { "emoji": "😂", "fellow_id": "f0…01" } ] } ],
   "photoCount": 3,
-  "checkinToken": "seedtok-trivia-01"                                      // only present when me is the host
+  "checkinToken": "seedtok-trivia-01", "checkinPin": "483921"              // only present when me is the host (the QR token and the passcode)
 }
 ```
 Only `confirmed` attendance counts as "was there"; `pending`/`denied` never do; `late:true`

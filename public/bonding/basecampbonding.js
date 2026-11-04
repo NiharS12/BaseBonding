@@ -279,7 +279,7 @@
     const MSG = {
       window_closed: "The check-in window for this event has closed. Use \"I was there too\" instead.",
       not_host: "Only the host can do that.", already: "You're already on the list.", bad_code: "That check-in code didn't work. Ask the host to show it again.",
-      gone: "That isn't here anymore.", too_big: "That photo is over 25 MB. Try another one.", bad_photo: "That file isn't a photo we can read.",
+      gone: "That isn't here anymore.", too_big: "That photo is over 25 MB. Try another one.", bad_photo: "That file isn't a photo we can read.", bad_file: "That file isn't a photo we can read.",
       bad_text: "Add a title and a start time.", bad_time: "Check the start and end times.", not_allowed: "You can't do that one.", offline: "You're offline. Try again once you're connected.",
       unreachable: "Couldn't reach Pulse. Check the Wi-Fi and try again.", slow_down: "A lot of taps at once. Try again in a moment.", signed_out: "Sign in to Pulse again, then try once more."
     };
@@ -345,7 +345,7 @@
     }
     function inboundCard() {
       const i = S.data.inbound || {};
-      if (!i.slackChannel && !i.smsNumber) return null;
+      if (!i.slackChannel && !i.smsNumber && !i.email) return null;
       const auto = !!i.autoPost;
       const ways = [i.slackChannel ? ["post in ", h("code", { text: i.slackChannel })] : null, i.smsNumber ? ["text ", h("code", { text: fmtPhone(i.smsNumber) })] : null, i.email ? ["email ", h("code", { text: i.email })] : null].filter(Boolean);
       const joined = []; ways.forEach((w, k) => { if (k) joined.push(k === ways.length - 1 ? " or " : ", "); joined.push(w); });
@@ -523,7 +523,8 @@
         h("div", { class: "bb-section" }, h("div", { class: "bb-section-head" }, h("p", { class: "bb-label", text: e.ends_at < S.now ? "Who was invited" : "Going with" }),
             h("button", { class: "bb-btn bb-btn-ghost bb-btn-small", type: "button", onclick: () => openAttendees(e.id) }, icon("users"), "Show attendees")),
           h("div", { class: "bb-actions" }, people.length ? avatars(people, 8, conf.map(x => x.fellow_id)) : h("span", { class: "bb-hint", text: "Nobody tagged yet." }),
-            h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => pickFellows("Tag fellows", e.invites, ids => { e.invites = ids; render(); act(api.invite(e.id, ids), patchEvent); }) }, icon("users"), "Tag fellows"))),
+            // The host's picker replaces the "with whom" list (so unticking removes); anyone else can only add people.
+            h("button", { class: "bb-btn bb-btn-small", type: "button", onclick: () => pickFellows("Tag fellows", e.invites, ids => { const added = ids.filter(id => e.invites.indexOf(id) < 0); e.invites = host ? ids : e.invites.concat(added); render(); act(host ? api.updateEvent(e.id, { invites: ids }) : api.invite(e.id, added), patchEvent); }) }, icon("users"), "Tag fellows"))),
         reactions({ type: "event", id: e.id }, e.reactions, false),
         attendanceBlock(e, a, conf, host),
         h("div", { class: "bb-section" }, h("div", { class: "bb-section-head" }, h("p", { class: "bb-label", text: "Photos · " + eventPhotos(e.id).length }),
@@ -674,7 +675,7 @@
           h("label", { class: "bb-field" }, h("span", { text: "Starts" }), h("input", { class: "bb-input", name: "starts", type: "datetime-local", value: toLocalInput(start), required: true, onchange: ev => { const s = new Date(ev.target.value).getTime(); if (!isNaN(s)) form.elements.ends.value = toLocalInput(s + 2 * H); } })),
           h("label", { class: "bb-field" }, h("span", { text: "Ends" }), h("input", { class: "bb-input", name: "ends", type: "datetime-local", value: toLocalInput(end), required: true }))),
         h("label", { class: "bb-field" }, h("span", { text: "Where" }), h("input", { class: "bb-input", name: "location", value: e ? e.location : "", placeholder: "Pandora Karaoke, 50 Mason St", maxlength: "120" })),
-        h("label", { class: "bb-field" }, h("span", { text: "Map link (optional)" }), h("input", { class: "bb-input", name: "location_url", type: "url", value: e ? e.location_url || "" : "", placeholder: "https://maps.apple.com/…" })),
+        h("label", { class: "bb-field" }, h("span", { text: "Map link (optional)" }), h("input", { class: "bb-input", name: "location_url", type: "url", value: e ? e.location_url || "" : "", placeholder: "https://maps.apple.com/…", maxlength: "500" })),
         h("label", { class: "bb-field" }, h("span", { text: "Details" }), h("textarea", { class: "bb-input", name: "description", placeholder: "Private room booked for 15. Bring your worst song.", maxlength: "1000" }, e ? e.description : "")),
         h("div", { class: "bb-field" }, h("span", { text: "With" }), who),
         err,

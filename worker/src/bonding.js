@@ -136,9 +136,11 @@ async function getEvent(env, meId, eventId) {
 
 /** Load photos visible to `meId` (status ok, plus my own pending), or one photo by id. */
 async function loadPhotos(env, meId, photoId = null) {
+  // Parenthesised: the callers append `AND …` clauses, and `a OR b AND c` would bind as `a OR (b AND c)`,
+  // which let deleted comments on everyone's photos back into bbload.
   const where = photoId
     ? `WHERE p.id = ?1`
-    : `WHERE p.status = 'ok' OR p.uploader_id = ?1`;
+    : `WHERE (p.status = 'ok' OR p.uploader_id = ?1)`;
   const arg = photoId || meId;
   const [photos, tags, comments, reactions] = (
     await env.DB.batch([

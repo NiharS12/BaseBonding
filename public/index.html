@@ -67,6 +67,7 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
     <label>You are <select id="who"></select></label>
     <button type="button" id="simSlack">Simulate a Slack photo</button>
     <button type="button" id="simSms">Simulate a texted photo</button>
+    <button type="button" id="simEmail">Simulate an emailed photo</button>
     <button type="button" id="simPlan">Simulate a texted plan</button>
     <form class="msg" id="msg"><label for="msgText" id="msgLabel">Message</label><input id="msgText" autocomplete="off"><button type="submit" class="send" id="msgSend">Send</button><button type="button" id="msgCancel">Cancel</button></form>
     <p class="reply" id="reply" aria-live="polite"></p>
@@ -119,10 +120,11 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
   who.addEventListener('change', function () { sessionStorage.setItem(meKey, who.value); api._switchTo(who.value); bb.reload(); });
   var sim = function (source) { return function () {
     if (useWorker) { say('With the Worker, run worker/scripts/test-inbound.sh to post a signed Slack or Twilio webhook.'); return; }
-    ask(source, source === 'slack' ? 'Slack post with a photo. Caption:' : 'Text Plans Bot a photo. Caption:', 'add #karaoke, #dolores… to pick an event, or leave empty for the cohort album', source === 'slack' ? '#dolores best day' : '');
+    ask(source, source === 'slack' ? 'Slack post with a photo. Caption:' : source === 'email' ? 'Share → Mail a photo to Plans Bot. Subject:' : 'Text Plans Bot a photo. Caption:', 'add #karaoke, #dolores… to pick an event, or leave empty for the cohort album', source === 'slack' ? '#dolores best day' : '');
   }; };
   document.getElementById('simSlack').addEventListener('click', sim('slack'));
   document.getElementById('simSms').addEventListener('click', sim('sms'));
+  document.getElementById('simEmail').addEventListener('click', sim('email'));
   document.getElementById('simPlan').addEventListener('click', function () {
     if (useWorker) { say('With the Worker, run worker/scripts/test-inbound.sh: it posts a signed text-only Slack message and a text-only Twilio SMS, and both become events.'); return; }
     ask('plan', 'Text Plans Bot a plan (what, when, where):', 'Tacos at La Taqueria Friday 7pm', 'Tacos at La Taqueria Friday 7pm');
@@ -134,7 +136,8 @@ h1{font-family:var(--display);margin:0;line-height:1.12;letter-spacing:-.2px}
       api._simulatePlan(text).then(function (r) { say('Plans Bot: Posted to Bonding: ' + r.summary + '. Open the tab to edit it or tag people.'); bb.reload(); },
         function () { say('Plans Bot: I couldn\'t find a day or time in that. Try something like "Tacos at La Taqueria Friday 7pm".'); });
     } else {
-      api._simulateInbound(source, text).then(function (p) { say((source === 'slack' ? 'Slack bot: ' : 'Plans Bot: ') + 'Got 1 photo → ' + (p.event_id ? 'the event album' : 'the cohort album') + '. ' + (p.status === 'ok' ? 'Posted.' : 'Check the review banner at the top of the tab to post or discard it.')); bb.reload(); });
+      // Same reply the Worker sends (Slack ephemeral / text); a plain email gets no reply from the product, so the demo just reports what happened.
+      api._simulateInbound(source, text).then(function (p) { say((source === 'slack' ? 'Slack bot: ' : source === 'email' ? 'Mail (no reply is sent; what the Worker did): ' : 'Plans Bot: ') + 'Got 1 photo → ' + (p._album || 'Cohort album') + '. ' + (p.status === 'ok' ? 'Posted to the album.' : 'Confirm in Pulse › Bonding (auto-accepted after 24h).')); bb.reload(); });
     }
   });
   var resetArmed = false;

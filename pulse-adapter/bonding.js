@@ -19,6 +19,7 @@ const MSG = {
   gone: "That isn't here anymore.",
   too_big: 'That photo is over 25 MB. Try another one.',
   bad_photo: "That file isn't a photo we can read.",
+  bad_file: "That file isn't a photo we can read.",
   bad_time: 'Check the start and end times.',
   bad_text: 'Add a title and a start time.',
   not_allowed: "You can't do that one.",

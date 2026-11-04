@@ -171,10 +171,10 @@
       },
       updateEvent: function (id, f) { var e = live(id); if (e.host_id !== meId) throw err("not_host"); if (f.ends_at && +f.ends_at < +(f.starts_at || e.starts_at)) throw err("bad_time"); ["title", "description", "location", "location_url"].forEach(function (k) { if (k in f) e[k] = f[k]; }); if (f.starts_at) e.starts_at = +f.starts_at; if (f.ends_at) e.ends_at = +f.ends_at; if (f.invites) e.invites = f.invites.filter(function (x, i, a) { return x !== meId && a.indexOf(x) === i; }); touch(e); save(); return latency(withCounts(e)); },
       cancelEvent: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); e.cancelled = true; touch(e); save(); return latency(withCounts(e)); },
-      rsvp: function (id, status) { var e = event(id); e.rsvps = e.rsvps.filter(function (r) { return r.fellow_id !== meId; }); if (status && status !== "none") e.rsvps.push({ fellow_id: meId, status: status }); touch(e); save(); return latency(withCounts(e)); },
+      rsvp: function (id, status) { var e = live(id); if (["going", "maybe", "no", "none"].indexOf(status) < 0) throw err("bad_status"); e.rsvps = e.rsvps.filter(function (r) { return r.fellow_id !== meId; }); if (status && status !== "none") e.rsvps.push({ fellow_id: meId, status: status }); touch(e); save(); return latency(withCounts(e)); },
       invite: function (id, ids) { var e = live(id); ids.forEach(function (x) { if (e.invites.indexOf(x) < 0) e.invites.push(x); }); touch(e); save(); return latency(withCounts(e)); },
       attend: function (id) {
-        var e = event(id); if (now() < e.starts_at - 30 * 60e3) throw err("window_closed");
+        var e = live(id); if (now() < e.starts_at - 30 * 60e3) throw err("window_closed");
         var a = att(e, meId);
         if (!verifyOn()) { // off: counted at once, any time after the window opens
           if (a && a.status === "confirmed") return latency(withCounts(e));
@@ -186,10 +186,10 @@
         if (a) e.attendance.splice(e.attendance.indexOf(a), 1);
         var host = e.host_id === meId; e.attendance.push({ fellow_id: meId, status: host ? "confirmed" : "claimed", via: host ? "host" : "tap", late: false, created_at: now(), confirmed_at: host ? now() : null }); touch(e); save(); return latency(withCounts(e)); },
       attendLate: function (id, o) {
-        var e = event(id); o = o || {}; if (now() < e.starts_at - 30 * 60e3) throw err("window_closed"); if (!verifyOn() || windowOpen(e)) return api.attend(id);
+        var e = live(id); o = o || {}; if (now() < e.starts_at - 30 * 60e3) throw err("window_closed"); if (!verifyOn() || windowOpen(e)) return api.attend(id);
         var cur = att(e, meId); if (cur && cur.status === "confirmed") return latency(withCounts(e));
         var tagged = state.photos.some(function (p) { return p.event_id === id && p.status === "ok" && p.tags.indexOf(meId) >= 0 && (!o.photoId || p.id === o.photoId); });
-        if (cur && !tagged) return latency(withCounts(e)); // still pending: nothing changes
+        if (cur && cur.status !== "denied" && !tagged) return latency(withCounts(e)); // still pending: nothing changes (a denied claim may be re-sent, like the Worker)
         if (cur) e.attendance.splice(e.attendance.indexOf(cur), 1);
         e.attendance.push({ fellow_id: meId, status: tagged ? "confirmed" : "pending", via: tagged ? "photo" : "tap", late: true, created_at: now(), confirmed_at: tagged ? now() : null });
         touch(e); save(); return latency(withCounts(e));
@@ -209,18 +209,26 @@
                   : state.events.find(function (x) { return x.checkin_token === raw && !x.cancelled; });
         if (!e) throw err("bad_code");
         var via = m && m[2] === e.checkin_pin && m[2] !== e.checkin_token ? "code" : "qr";
-        var a = att(e, meId); if (a) { a.status = "confirmed"; a.via = via; a.confirmed_at = now(); } else e.attendance.push({ fellow_id: meId, status: "confirmed", via: via, late: !windowOpen(e), created_at: now(), confirmed_at: now() });
+        var late = now() > e.ends_at + 48 * H; // "late" only after the window closes; a scan before the event starts is not late (same as the Worker)
+        var a = att(e, meId); if (a && a.status === "confirmed") return latency(withCounts(e));
+        if (a) { a.status = "confirmed"; a.via = via; a.late = late; a.confirmed_at = now(); } else e.attendance.push({ fellow_id: meId, status: "confirmed", via: via, late: late, created_at: now(), confirmed_at: now() });
         touch(e); save(); return latency(withCounts(e));
       },
-      newCheckinCode: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); e.checkin_token = Math.random().toString(36).slice(2, 10); e.checkin_pin = pin(); save(); return latency({ code: e.id + "-" + e.checkin_token, pin: e.checkin_pin }); },
+      newCheckinCode: function (id) { var e = live(id); if (e.host_id !== meId) throw err("not_host"); e.checkin_token = Math.random().toString(36).slice(2, 10); e.checkin_pin = pin(); save(); return latency({ code: e.id + "-" + e.checkin_token, pin: e.checkin_pin }); },
       checkinCode: function (id) { var e = event(id); if (e.host_id !== meId) throw err("not_host"); return latency({ code: e.id + "-" + e.checkin_token, pin: e.checkin_pin }); },
       react: function (t, emoji, on) { if (EMOJIS.indexOf(emoji) < 0) throw err("bad_emoji"); var x = target(t); x.reactions = (x.reactions || []).filter(function (r) { return !(r.fellow_id === meId && r.emoji === emoji); }); if (on) x.reactions.push({ emoji: emoji, fellow_id: meId }); save(); return latency(t.type === "photo" ? pub(x) : x); },
-      comment: function (t, text) { text = String(text || "").trim().slice(0, 1000); if (!text) throw err("bad_text"); var x = target(t); var c = { id: uid(), fellow_id: meId, text: text, created_at: now(), reactions: [] }; x.comments.push(c); save(); return latency(c); },
+      comment: function (t, text) {
+        text = String(text || "").trim(); if (!text || text.length > 1000) throw err("bad_text"); if (t.type !== "event" && t.type !== "photo") throw err("bad_target"); var x = target(t);
+        // The Worker refuses more than 5 comments in 10 s from one fellow (slow_down); the demo does the same.
+        var recent = 0, cutoff = now() - 10e3; state.events.concat(state.photos).forEach(function (o) { o.comments.forEach(function (c) { if (c.fellow_id === meId && c.created_at > cutoff) recent++; }); });
+        if (recent >= 5) throw err("slow_down");
+        var c = { id: uid(), fellow_id: meId, text: text, created_at: now(), reactions: [] }; x.comments.push(c); save(); return latency(c); },
       deleteComment: function (id) { var c = target({ type: "comment", id: id }); var hostOf = state.events.some(function (e) { return e.host_id === meId && (e.comments.indexOf(c) >= 0 || state.photos.some(function (p) { return p.event_id === e.id && p.comments.indexOf(c) >= 0; })); }); if (c.fellow_id !== meId && !hostOf) throw err("not_allowed"); c.deleted = true; c.text = ""; save(); return latency({ ok: true }); },
       uploadPhoto: function (file, o) {
         o = o || {}; if (o.eventId) live(o.eventId);
         return new Promise(function (ok, no) {
           if (file.size > 25 * 1024 * 1024) return no(err("too_big"));
+          if (file.type && !/^image\//i.test(file.type)) return no(err("bad_file"));
           var r = new FileReader();
           r.onload = function () {
             var p = { id: uid(), event_id: o.eventId || null, uploader_id: meId, filename: file.name || "photo.jpg", content_type: file.type || "image/jpeg", bytes: file.size, width: o.width || 0, height: o.height || 0,
@@ -232,7 +240,7 @@
         });
       },
       replacePhoto: function (id, file, o) {
-        o = o || {}; var p = photo(id); if (p.uploader_id !== meId) throw err("not_allowed");
+        o = o || {}; var p = photo(id); if (p.uploader_id !== meId) throw err("not_allowed"); if (file.size > 25 * 1024 * 1024) throw err("too_big"); if (file.type && !/^image\//i.test(file.type)) throw err("bad_file");
         return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { p._data = String(r.result); p._thumb = o.thumb || null; p.filename = file.name || p.filename; p.bytes = file.size; p.width = o.width || p.width; p.height = o.height || p.height; p.taken_at = o.taken_at || p.taken_at; if (o.lat != null && o.lng != null) { p.lat = o.lat; p.lng = o.lng; } p.source = "app"; save(); setTimeout(function () { ok(pub(p)); }, 300); }; r.onerror = function () { no(err("bad_photo")); }; r.readAsDataURL(file); });
       },
       photoUrl: function (id, o) { var p = photo(id); var size = (o && o.size) || "thumb"; if (size === "thumb" && p._thumb) return p._thumb; return p._data; },
@@ -255,10 +263,14 @@
           .then(function (e) { return { event: e, summary: r.title + " · " + r.when + (r.location ? " · " + r.location : "") }; });
       },
       _setVerify: function (on) { state.features = state.features || {}; state.features.verifyAttendance = !!on; save(); },
+      // Demo bar "Simulate a … photo": source is slack | sms | email, the three channels the Worker stores (inbound.js).
+      // Like the Worker, the photo lands with no thumb, routed by the caption's #tag, pending unless "Post mine automatically" is on.
       _simulateInbound: function (source, caption) {
+        if (["slack", "sms", "email"].indexOf(source) < 0) throw err("bad_target");
         var route = routeCaption(caption);
-        var p = { id: uid(), event_id: route.eventId, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: 0, width: 1200, height: 900, caption: route.caption, source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
-        state.photos.unshift(p); save(); return latency(pub(p));
+        var sms = source === "sms"; // MMS arrives carrier-compressed; Slack and Mail keep the full file
+        var p = { id: uid(), event_id: route.eventId, uploader_id: meId, filename: source + "-" + Date.now() + ".jpg", content_type: "image/jpeg", bytes: sms ? 380000 : 2900000, width: sms ? 1200 : 4032, height: sms ? 900 : 3024, caption: route.caption, taken_at: null, lat: null, lng: null, source: source, status: (state.autoPost || {})[meId] ? "ok" : "pending", created_at: now(), tags: [], reactions: [], comments: [], _data: paint(1200, 900, Math.floor(Math.random() * 8), "") };
+        state.photos.unshift(p); save(); var out = pub(p); out._album = route.label; return latency(out);
       },
       _reset: function () { try { localStorage.removeItem(KEY); } catch (e) {} state = seedState(); state.v = 8; save(); }
     };

@@ -65,12 +65,17 @@ Local: copy `worker/.dev.vars.example` to `worker/.dev.vars`. Production:
    Information → Signing Secret** → `SLACK_SIGNING_SECRET`.
 5. Invite the bot to the photo channel (`/invite @Basecamp Bonding` in `#cohort-photos`) and set
    `INBOUND_SLACK_CHANNEL` to that channel's name.
+6. So fellows can DM the bot a photo or a plan: **App Home → Show Tabs → Messages Tab**, tick
+   *Allow users to send Slash commands and messages from the messages tab*.
 
 What the handler does: verifies the signature (HMAC-SHA256 of `v0:<ts>:<body>`, 5-minute window),
-ignores retries (`X-Slack-Retry-Num`), bots and edits, takes every `files[]` entry with an
-`image/*` mimetype from a `message` event, downloads it with the bot token, stores it, and replies
-with the album. The response is `{ ok, stored, photoIds, album, eventId, failed }` (or
-`{ ok, skipped }`).
+ignores retries (`X-Slack-Retry-Num`), bots and edits, answers Slack at once (`{ ok, accepted }`,
+inside Slack's 3-second deadline) and finishes the work in `ctx.waitUntil()`: every `files[]` entry
+with an `image/*` mimetype from a `message` event is downloaded with the bot token and stored, and
+the sender gets an ephemeral reply naming the album. A text-only message is read as a plan; in a DM
+a message that is neither gets the one-line hint, in a channel it is left alone. With the header
+`X-BB-Sync: 1` (the local test script) the handler runs inline and returns the full result,
+`{ ok, stored, photoIds, album, eventId, failed }` or `{ ok, skipped }`.
 
 ## Twilio setup
 
@@ -123,7 +128,11 @@ Pulse already runs on Cloudflare, and the cohort already has Slack, so two of th
 
 1. **Slack**: already free. Fellows share a photo to the cohort channel from the phone's share sheet.
 2. **Email (Cloudflare Email Routing)**: free on any zone. In the Cloudflare dashboard → Email → Email Routing, create an address such as `photos@basecamppulse.com` and set its action to **Send to a Worker** → this Worker. Set `INBOUND_EMAIL` in `wrangler.toml` to that address. The Worker's `email()` handler (`src/inbound.js`, `handleEmail`) parses the message with `postal-mime`, matches the sender to the roster by email, routes by `#event-name` in the subject or body, and stores every image attachment. Unknown senders get a bounce explaining why; no `send_email` binding is needed.
-3. **Texting without Twilio**: create a free **Google Voice** number, turn on *Settings → Messages → Forward messages to email*, and in that Gmail add a filter that forwards mail from `txt.voice.google.com` to `INBOUND_EMAIL`. An MMS to the Google Voice number then arrives at the Worker as an email with the photo attached and the sender's number in the subject (`New MMS from (415) 555-0199`); the handler matches that number to `bb_fellows.phone` and files the photo exactly like a Twilio MMS. Set `INBOUND_SMS_NUMBER` to the Google Voice number so the contact card and "Text it" button use it. Google Voice is for personal US accounts and its terms expect personal use; Twilio (`/hooks/twilio`) remains the supported path if that is a concern.
+3. **Texting without Twilio**: create a free **Google Voice** number, turn on *Settings → Messages → Forward messages to email*, and in that Gmail add a filter that forwards mail from `txt.voice.google.com` to `INBOUND_EMAIL`. An MMS to the Google Voice number then arrives at the Worker as an email with the photo attached; the sender's number is in the Google Voice From address (`<sender>.<voice number>.<id>@txt.voice.google.com`, kept in the From header of the Gmail forward) and in the subject (`New MMS from (415) 555-0199`). The handler reads both, matches the number to `bb_fellows.phone` and files the photo exactly like a Twilio MMS. Set `INBOUND_SMS_NUMBER` to the Google Voice number so the contact card and "Text it" button use it. Google Voice is for personal US accounts and its terms expect personal use; Twilio (`/hooks/twilio`) remains the supported path if that is a concern.
+
+   **Gmail's forwarding check.** When you add `INBOUND_EMAIL` as a forwarding address, Gmail mails it a confirmation code from `forwarding-noreply@google.com`. The Worker has no inbox to show it in, so it accepts that one mail and logs the code: run `npx wrangler tail` while you add the address, then paste the code into Gmail. (Alternative: in Email Routing, point the address at a mailbox for a minute, confirm, then switch it back to the Worker.)
+
+   **What the sender sees.** Slack and Twilio senders get a reply naming the album or the posted plan. A texter on the Google Voice route and a fellow who emails a photo get no reply (the Worker has no sending binding); the photo simply appears in their review list in the tab, or in the album if "Post mine automatically" is on. A mail that carries neither a photo nor a plan is bounced with a hint, which is the one reply email senders do get.
 
 **The contact card ("Plans Bot").** `GET /bonding/contact.vcf` serves a vCard named Plans Bot (nickname Flicks Bot) with the number and email; the module's "Save Plans Bot" sheet encodes the same card in a QR and walks through the four taps (point the Camera at it, tap "Add contact", keep the name, Save). Once saved, fellows on iPhone or Android share photos from the camera roll to "Plans Bot" in Messages or Mail, or text it a plan. On iPhone, opening the .vcf shows *Create New Contact*; the QR scanned with the Camera app offers *Add to Contacts*.
 

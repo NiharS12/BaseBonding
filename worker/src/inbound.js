@@ -199,7 +199,7 @@ async function resolveSlackUser(env, event) {
   return null;
 }
 
-export async function handleSlack(request, env) {
+export async function handleSlack(request, env, ctx) {
   if (!env.SLACK_SIGNING_SECRET) return json({ error: 'not_configured' }, 503);
   const raw = await request.text();
   const ok = await verifySlack(raw, request.headers.get('x-slack-request-timestamp'), request.headers.get('x-slack-signature'), env.SLACK_SIGNING_SECRET);
@@ -215,17 +215,32 @@ export async function handleSlack(request, env) {
   if (event.bot_id || !event.user) return json({ ok: true, skipped: 'bot' });
   if (['message_changed', 'message_deleted', 'channel_join'].includes(event.subtype)) return json({ ok: true, skipped: event.subtype });
 
+  // Slack expects an answer within 3 seconds and retries (then gives up) otherwise. Downloading a 10 MB photo and
+  // writing it to R2 can take longer than that, so when the runtime gives us a context the work carries on in
+  // waitUntil() after the 200 goes back; the local test script (no deadline) still gets the full result inline.
+  if (ctx && typeof ctx.waitUntil === 'function' && !request.headers.get('x-bb-sync')) {
+    ctx.waitUntil(processSlackMessage(env, event).catch((e) => console.error('slack: failed', e && e.stack ? e.stack : e)));
+    return json({ ok: true, accepted: true });
+  }
+  return json(await processSlackMessage(env, event));
+}
+
+async function processSlackMessage(env, event) {
   const files = (event.files || []).filter((f) => /^image\//i.test(f.mimetype || ''));
   const fellow = await resolveSlackUser(env, event);
   if (!fellow) {
     if (files.length) await slackReply(env, event, "I couldn't match you to a Pulse fellow. Reply with your Pulse email and I'll link you.");
-    return json({ ok: true, skipped: 'unknown_user', files: files.length });
+    return { ok: true, skipped: 'unknown_user', files: files.length };
   }
   if (!files.length) {
     const plan = await postPlan(env, fellow, event.text, 'Slack');
-    if (!plan) return json({ ok: true, skipped: 'no_images' });
+    if (!plan) {
+      // In a channel, ordinary chatter is left alone. A DM to the bot is a question for it, so it gets the one-line hint.
+      if (event.channel_type === 'im') await slackReply(env, event, PLAN_HELP);
+      return { ok: true, skipped: 'no_images' };
+    }
     await slackReply(env, event, `Posted to Bonding: ${plan.summary}. Open the tab to edit it or tag people.`);
-    return json({ ok: true, event: plan.event.id, title: plan.event.title });
+    return { ok: true, event: plan.event.id, title: plan.event.title };
   }
 
   const route = await routeCaption(env, event.text);
@@ -246,7 +261,8 @@ export async function handleSlack(request, env) {
     }
   }
   if (stored.length) await slackReply(env, event, `Got ${stored.length} photo${stored.length === 1 ? '' : 's'} → ${route.label}. ${inboundNote(await inboundAuto(env, fellow.id))}`);
-  return json({ ok: true, stored: stored.length, photoIds: stored, album: route.label, eventId: route.eventId, failed: errors });
+  else if (errors.length) await slackReply(env, event, "Sorry, I couldn't save that photo. Try again?");
+  return { ok: true, stored: stored.length, photoIds: stored, album: route.label, eventId: route.eventId, failed: errors };
 }
 
 /* ─────────────────────────────────── Twilio ─────────────────────────────── */
@@ -338,7 +354,11 @@ export async function handleTwilio(request, env) {
    the phone number in the subject ("New MMS from (415) 555-0199") matched against the roster. */
 
 const GV_RE = /(?:from|text message from|MMS from)\s*:?\s*\+?(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i;
-const GV_ADDR_RE = /\+?(\d{10,11})(?:\.\d+)?@txt\.voice\.google\.com/i;
+// Google Voice writes the sender's number into its own address: "14155550199.14155550123.XXXXXXXX@txt.voice.google.com"
+// (sender, then the Voice number, then an id); older forwards look like "+14155550199@txt.voice.google.com".
+const GV_ADDR_RE = /\+?(\d{10,11})(?:\.[^@\s]+)?@txt\.voice\.google\.com/i;
+// Gmail's one-time "confirm this forwarding address" mail. The Worker can't show an inbox, so the code is logged instead.
+const GMAIL_FORWARD_RE = /forwarding-noreply@google\.com/i;
 
 function emailCaption(email, isGv) {
   const subject = String(email.subject || '').replace(/^(re|fwd?|fw):\s*/i, '').trim();
@@ -355,11 +375,22 @@ function emailCaption(email, isGv) {
 
 export async function handleEmail(message, env, ctx) {
   const email = await PostalMime.parse(message.raw);
-  const fromAddr = String(message.from || (email.from && email.from.address) || '').toLowerCase();
+  // Two senders: the envelope (message.from: for a Gmail filter-forward that is the Gmail account's "+caf_" address)
+  // and the From header (email.from: for a forwarded Google Voice text that is still the txt.voice.google.com address).
+  const envelopeFrom = String(message.from || '').toLowerCase();
+  const headerFrom = String((email.from && email.from.address) || '').toLowerCase();
+  const fromAddr = envelopeFrom || headerFrom;
   const raw = `${email.subject || ''}\n${email.text || ''}\n${email.html || ''}`;
-  const gvAddr = GV_ADDR_RE.exec(fromAddr) || GV_ADDR_RE.exec(raw);
+  if (GMAIL_FORWARD_RE.test(envelopeFrom) || GMAIL_FORWARD_RE.test(headerFrom)) {
+    // Gmail verifies a new forwarding address once by mailing it a code. Surface it in `wrangler tail` and accept the mail.
+    const code = /(\d{6,})/.exec(email.subject || '') || /confirmation code[:\s]*(\d{6,})/i.exec(email.text || '') || /(\d{9})/.exec(email.text || '');
+    console.log(`email: Gmail forwarding confirmation received${code ? ' · code ' + code[1] : ''} · subject "${email.subject || ''}"`);
+    return;
+  }
+  const replyTo = String((email.replyTo && email.replyTo[0] && email.replyTo[0].address) || '').toLowerCase();
+  const gvAddr = GV_ADDR_RE.exec(headerFrom) || GV_ADDR_RE.exec(replyTo) || GV_ADDR_RE.exec(envelopeFrom) || GV_ADDR_RE.exec(raw);
   const gvSubject = GV_RE.exec(email.subject || '') || GV_RE.exec(email.text || '');
-  const isGv = !!(gvAddr || /voice\.google\.com/i.test(raw));
+  const isGv = !!(gvAddr || /voice\.google\.com/i.test(raw) || /voice\.google\.com/.test(headerFrom));
 
   let fellow = null, channel = 'email', externalId = fromAddr;
   if (isGv) {
@@ -367,6 +398,10 @@ export async function handleEmail(message, env, ctx) {
     if (phone) { channel = 'sms'; externalId = normalizePhone(phone) || phone; fellow = await identity(env, 'sms', externalId) || await fellowByPhone(env, phone); }
   }
   if (!fellow) fellow = await identity(env, 'email', fromAddr) || await fellowByEmail(env, fromAddr);
+  if (!fellow && headerFrom && headerFrom !== fromAddr) { // a forwarded mail: the roster email is in the From header
+    fellow = await identity(env, 'email', headerFrom) || await fellowByEmail(env, headerFrom);
+    if (fellow) externalId = headerFrom;
+  }
   if (!fellow) {
     // The bounce is the reply: no send_email binding needed.
     message.setReject(`Basecamp Bonding doesn't know this sender. Send from the email on the Pulse roster, or ask a facilitator to link ${externalId}.`);
