@@ -99,3 +99,21 @@ the values in `.dev.vars`, so the script doubles as a worked example of both sig
 ## Skipping the review list
 
 Each fellow can turn on **Post mine automatically** (the switch on the "Send photos from Slack or text" card; `POST /api/bbsetinboundauto { on: true }`, column `bb_fellows.inbound_auto`). While it is on, their inbound photos are stored with `status: ok` and the Slack/SMS reply says "Posted to the album". Otherwise photos wait as `pending` for the sender, who can confirm one at a time or tap **Post all**; anything still pending after 24 h is accepted into the album it was routed to on the next `bbload`.
+
+## Free setup (no Twilio subscription)
+
+Pulse already runs on Cloudflare, and the cohort already has Slack, so two of the three channels cost nothing:
+
+1. **Slack**: already free. Fellows share a photo to the cohort channel from the phone's share sheet.
+2. **Email (Cloudflare Email Routing)**: free on any zone. In the Cloudflare dashboard → Email → Email Routing, create an address such as `photos@basecamppulse.com` and set its action to **Send to a Worker** → this Worker. Set `INBOUND_EMAIL` in `wrangler.toml` to that address. The Worker's `email()` handler (`src/inbound.js`, `handleEmail`) parses the message with `postal-mime`, matches the sender to the roster by email, routes by `#event-name` in the subject or body, and stores every image attachment. Unknown senders get a bounce explaining why; no `send_email` binding is needed.
+3. **Texting without Twilio**: create a free **Google Voice** number, turn on *Settings → Messages → Forward messages to email*, and in that Gmail add a filter that forwards mail from `txt.voice.google.com` to `INBOUND_EMAIL`. An MMS to the Google Voice number then arrives at the Worker as an email with the photo attached and the sender's number in the subject (`New MMS from (415) 555-0199`); the handler matches that number to `bb_fellows.phone` and files the photo exactly like a Twilio MMS. Set `INBOUND_SMS_NUMBER` to the Google Voice number so the contact card and "Text it" button use it. Google Voice is for personal US accounts and its terms expect personal use; Twilio (`/hooks/twilio`) remains the supported path if that is a concern.
+
+**The contact card.** `GET /bonding/contact.vcf` serves a vCard with the number and email; the module's "Save the contact" sheet also encodes it in a QR. Once saved, fellows on iPhone or Android share photos from the camera roll to "Basecamp Bonding Photos" in Messages or Mail. On iPhone, opening the .vcf shows *Create New Contact*; the QR scanned with the Camera app offers *Add to Contacts*.
+
+Local test of the email path:
+
+```bash
+npx wrangler dev --port 8787 --var INBOUND_EMAIL:photos@basecamppulse.com
+curl -X POST "http://localhost:8787/cdn-cgi/handler/email?from=ada.okafor@example.org&to=photos@basecamppulse.com" \
+  -H "content-type: message/rfc822" --data-binary @message.eml   # needs Message-ID and Date headers
+```

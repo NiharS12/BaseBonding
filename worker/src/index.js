@@ -11,7 +11,7 @@
 
 import { resolveFellow } from './auth.js';
 import * as bonding from './bonding.js';
-import { handleSlack, handleTwilio } from './inbound.js';
+import { handleEmail, handleSlack, handleTwilio } from './inbound.js';
 import { ApiError, json } from './util.js';
 
 // Route name → handler. Names are `bb` + api function name, lowercased.
@@ -41,7 +41,18 @@ const API = {
   bbsetinboundauto: bonding.setInboundAuto,
 };
 
+// The photo line as a contact card: fellows save it once, then text or email photos to it from any phone.
+function contactCard(env) {
+  const lines = ['BEGIN:VCARD', 'VERSION:3.0', 'N:Photos;Basecamp Bonding;;;', 'FN:Basecamp Bonding Photos', 'ORG:Basecamp Pulse'];
+  if (env.INBOUND_SMS_NUMBER) lines.push('TEL;TYPE=CELL:' + env.INBOUND_SMS_NUMBER);
+  if (env.INBOUND_EMAIL) lines.push('EMAIL;TYPE=INTERNET:' + env.INBOUND_EMAIL);
+  lines.push('NOTE:Text or email photos here. Add #event-name to file them under an event.', 'END:VCARD');
+  return new Response(lines.join('\r\n') + '\r\n', { headers: { 'content-type': 'text/vcard; charset=utf-8', 'content-disposition': 'inline; filename="basecamp-bonding-photos.vcf"', 'cache-control': 'public, max-age=86400' } });
+}
+
 export default {
+  // Cloudflare Email Routing → this Worker (free). Route photos@<your domain> here in the dashboard.
+  async email(message, env, ctx) { return handleEmail(message, env, ctx); },
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -50,6 +61,7 @@ export default {
       if (path.startsWith('/photos/')) return await bonding.servePhoto(request, env, path.slice(8), url.searchParams.get('size'));
       if (path === '/hooks/slack') return request.method === 'POST' ? await handleSlack(request, env, ctx) : json({ error: 'method' }, 405);
       if (path === '/hooks/twilio') return request.method === 'POST' ? await handleTwilio(request, env, ctx) : json({ error: 'method' }, 405);
+      if (path === '/bonding/contact.vcf') return contactCard(env);
       return env.ASSETS ? env.ASSETS.fetch(request) : json({ error: 'not_found' }, 404);
     } catch (e) {
       if (e instanceof ApiError) return json({ error: e.code }, e.status);

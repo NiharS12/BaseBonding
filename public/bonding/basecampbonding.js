@@ -94,6 +94,7 @@
     if (d < 7 * D) return Math.round(d / D) + "d ago";
     return fmtDay(t);
   }
+  const fmtPhone = n => { const d = String(n || "").replace(/\D/g, ""); return d.length === 11 && d[0] === "1" ? "(" + d.slice(1, 4) + ") " + d.slice(4, 7) + "-" + d.slice(7) : d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : String(n || ""); };
   const fmtBytes = b => b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
   const plural = (n, w, ws) => n + " " + (n === 1 ? w : ws || w + "s");
   const slugify = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -310,7 +311,7 @@
     function pendingBanner() {
       const n = pendingMine().length;
       if (!n) return null;
-      return h("div", { class: "bb-banner" }, h("p", {}, h("b", { text: plural(n, "photo") + " arrived" }), " from Slack or text. Post them as they came in, or pick albums."),
+      return h("div", { class: "bb-banner" }, h("p", {}, h("b", { text: plural(n, "photo") + " arrived" }), " from Slack, text or email. Post them as they came in, or pick albums."),
         h("span", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", text: "Post all", onclick: postAllInbound }),
           h("button", { class: "bb-btn bb-btn-small", type: "button", text: "Review", onclick: openInboundReview })));
     }
@@ -318,13 +319,43 @@
       const i = S.data.inbound || {};
       if (!i.slackChannel && !i.smsNumber) return null;
       const auto = !!i.autoPost;
+      const ways = [i.slackChannel ? ["post in ", h("code", { text: i.slackChannel })] : null, i.smsNumber ? ["text ", h("code", { text: fmtPhone(i.smsNumber) })] : null, i.email ? ["email ", h("code", { text: i.email })] : null].filter(Boolean);
+      const joined = []; ways.forEach((w, k) => { if (k) joined.push(k === ways.length - 1 ? " or " : ", "); joined.push(w); });
       return h("div", { class: "bb-inbound" },
-        h("b", {}, icon("send"), "Send photos from Slack or text"),
-        h("span", {}, i.slackChannel ? ["Post in ", h("code", { text: i.slackChannel })] : null, i.slackChannel && i.smsNumber ? " or " : null, i.smsNumber ? ["text ", h("code", { text: i.smsNumber })] : null,
-          ". Add ", h("code", { text: "#" + slugify((upcoming()[0] || { title: "event-name" }).title).split("-").slice(0, 2).join("-") }), " to file it under an event, or nothing for the cohort album."),
+        h("b", {}, icon("send"), "Send photos from your phone"),
+        h("span", {}, joined.length ? [joined[0] && String(joined[0][0]).charAt(0).toUpperCase() + String(joined[0][0]).slice(1), joined[0] && joined[0].slice(1), joined.slice(1)] : null,
+          ". Add ", h("code", { text: "#" + slugify((upcoming()[0] || { title: "event-name" }).title).split("-")[0] }), " to file it under an event, or nothing for the cohort album."),
+        (i.smsNumber || i.email) ? h("div", { class: "bb-actions" },
+          h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", onclick: () => openContactSheet(i) }, icon("qr"), "Save the contact"),
+          i.smsNumber ? h("a", { class: "bb-btn bb-btn-small", href: "sms:" + i.smsNumber }, icon("phone"), "Text it") : null,
+          i.email ? h("a", { class: "bb-btn bb-btn-small", href: "mailto:" + i.email + "?subject=" + encodeURIComponent("#cohort") }, icon("send"), "Email it") : null) : null,
         h("div", { class: "bb-row", style: { borderBottom: "0", paddingBottom: "0" } },
           h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: "Post mine automatically" }), h("span", { class: "bb-row-sub", style: { whiteSpace: "normal" }, text: auto ? "On: your photos go straight into the album named in the caption." : "Off: your photos wait in a review list first (posted anyway after 24 h)." })),
           h("button", { class: "bb-tick", type: "button", "aria-pressed": auto, "aria-label": "Post my Slack and text photos automatically", onclick: () => { S.data.inbound.autoPost = !auto; render(); act(api.setInboundAuto(!auto), r => { if (r && "autoPost" in r) S.data.inbound.autoPost = !!r.autoPost; }); if (!auto && pendingMine().length) postAllInbound(); } }, icon("check"))));
+    }
+    // The photo line as a contact: a vCard QR (iPhone and Android cameras offer "Add contact"), a .vcf, and sms:/mailto: links.
+    // Once it's a contact, sharing a photo to it from the camera roll is just "Share → Messages/Mail → Basecamp Bonding Photos".
+    function vcard(i) {
+      const l = ["BEGIN:VCARD", "VERSION:3.0", "N:Photos;Basecamp Bonding;;;", "FN:Basecamp Bonding Photos", "ORG:Basecamp Pulse"];
+      if (i.smsNumber) l.push("TEL;TYPE=CELL:" + i.smsNumber);
+      if (i.email) l.push("EMAIL;TYPE=INTERNET:" + i.email);
+      l.push("END:VCARD");
+      return l.join("\r\n") + "\r\n";
+    }
+    function openContactSheet(i) {
+      const card = vcard(i);
+      const box = h("div", { class: "bb-qr" });
+      if (root.PulseQR) { try { box.innerHTML = root.PulseQR.svg(card, { color: "#0b0b0b" }); } catch (e) { box.textContent = ""; add(box, h("p", { class: "bb-hint", text: "Use the buttons below." })); } }
+      const vcfHref = i.contactUrl || URL.createObjectURL(new Blob([card], { type: "text/vcard" }));
+      const content = h("div", { class: "bb-sheet-body" },
+        h("div", { class: "bb-intro" }, h("h2", { text: "Basecamp Bonding Photos" }), h("p", { text: "Save it as a contact once. After that, sharing a photo from your camera roll to \"Basecamp Bonding Photos\" in Messages" + (i.email ? " or Mail" : "") + " sends it straight to the album. Works on iPhone and Android." })),
+        box, h("p", { class: "bb-qr-label", text: "Point another phone's camera here to add the contact" }),
+        h("div", { class: "bb-actions", style: { justifyContent: "center" } },
+          h("a", { class: "bb-btn bb-btn-primary", href: vcfHref, download: i.contactUrl ? null : "basecamp-bonding-photos.vcf" }, icon("user"), "Add to my contacts"),
+          i.smsNumber ? h("a", { class: "bb-btn", href: "sms:" + i.smsNumber + "?&body=" + encodeURIComponent("#cohort ") }, icon("phone"), "Text " + fmtPhone(i.smsNumber)) : null,
+          i.email ? h("a", { class: "bb-btn", href: "mailto:" + i.email + "?subject=" + encodeURIComponent("#cohort") }, icon("send"), "Email " + i.email) : null),
+        h("p", { class: "bb-hint", text: "Put #event-name in the message (or the email subject) to file photos under an event. No tag means the cohort album." }));
+      ui.open(content, "Save the contact");
     }
     // Everything waiting in the review list goes into the album it was routed to (caption → event, else cohort).
     function postAllInbound() {
@@ -633,7 +664,7 @@
     function photoTile(p, click) {
       return h("button", { class: "bb-ph", type: "button", "data-pending": p.status === "pending", onclick: click, "aria-label": "Photo by " + name(p.uploader_id) },
         h("img", { src: thumbUrl(p), alt: p.caption || "", loading: "lazy" }),
-        p.source !== "app" ? h("span", { class: "bb-ph-badge" }, icon(p.source === "slack" ? "slack" : "phone"), p.source === "slack" ? "Slack" : "Text") : p.reactions.length ? h("span", { class: "bb-ph-badge", text: "🔥 " + p.reactions.length }) : null,
+        p.source !== "app" ? h("span", { class: "bb-ph-badge" }, icon(p.source === "slack" ? "slack" : p.source === "email" ? "send" : "phone"), p.source === "slack" ? "Slack" : p.source === "email" ? "Email" : "Text") : p.reactions.length ? h("span", { class: "bb-ph-badge", text: "🔥 " + p.reactions.length }) : null,
         p.tags.length ? avatars(p.tags, 3) : null);
     }
     function openAlbum(eventId, rerender) {
@@ -772,7 +803,7 @@
         list.length ? h("div", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-dark", type: "button", onclick: postAllInbound }, icon("check"), "Post all " + list.length), h("span", { class: "bb-hint", text: "Turn on \"Post mine automatically\" under Photos to skip this list." })) : null,
         list.length ? h("ul", { class: "bb-list" }, list.map(p => { let target = p.event_id || "";
           return h("li", { class: "bb-row", style: { alignItems: "flex-start", flexWrap: "wrap" } }, h("span", { class: "bb-ph", style: { width: "72px" } }, h("img", { src: thumbUrl(p), alt: "" })),
-            h("span", { class: "bb-row-text", style: { gap: "6px" } }, h("span", { class: "bb-row-sub", text: "From " + (p.source === "slack" ? "Slack" : "text") + " · " + ago(p.created_at, S.now) + (p.caption ? " · “" + p.caption + "”" : "") }),
+            h("span", { class: "bb-row-text", style: { gap: "6px" } }, h("span", { class: "bb-row-sub", text: "From " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") + " · " + ago(p.created_at, S.now) + (p.caption ? " · “" + p.caption + "”" : "") }),
               h("select", { class: "bb-input", style: { minHeight: "40px" }, onchange: ev => { target = ev.target.value; } }, h("option", { value: "", selected: !target, text: "Cohort album" }), candidates.map(e => h("option", { value: e.id, selected: e.id === target, text: e.title }))),
               h("span", { class: "bb-actions" }, h("button", { class: "bb-btn bb-btn-small bb-btn-dark", type: "button", text: "Keep", onclick: () => { p.status = "ok"; p.event_id = target || null; render(); act(api.confirmInbound(p.id, { eventId: target || null }), patchPhoto); if (pendingMine().length) openInboundReview(); else ui.close(); } }),
                 h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", text: "Discard", onclick: () => { S.data.photos = S.data.photos.filter(x => x.id !== p.id); render(); act(api.discardInbound(p.id)); if (pendingMine().length) openInboundReview(); else ui.close(); } })))); })) :
@@ -793,7 +824,7 @@
       const canDelete = p.uploader_id === me().id || (e && isHost(e));
       const go = d => { const n = (idx + d + ids.length) % ids.length; openLightbox(list, ids[n], true); };
       const panel = h("div", { class: "bb-lb-panel" },
-        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md"), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: name(p.uploader_id) }), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : "text") : "") })),
+        h("div", { class: "bb-lb-head" }, avatar(fellow(p.uploader_id), "md"), h("span", { class: "bb-row-text" }, h("span", { class: "bb-row-name", text: name(p.uploader_id) }), h("span", { class: "bb-row-sub", text: (p.taken_at ? "Taken " + fmtDay(p.taken_at) + " " + fmtTime(p.taken_at) : "Added " + ago(p.created_at, S.now)) + (e ? " · " + e.title : " · Cohort album") + (p.source !== "app" ? " · via " + (p.source === "slack" ? "Slack" : p.source === "email" ? "email" : "text") : "") })),
           h("button", { class: "bb-btn bb-btn-small", type: "button", title: "The original file (" + (p.bytes ? fmtBytes(p.bytes) : "full quality") + ")", onclick: ev => downloadOne(p, ev.currentTarget) }, icon("download"), canShareFiles ? "Save to Photos" : "Original")),
         h("div", { class: "bb-actions" }, p.caption ? h("p", { class: "bb-desc", text: p.caption }) : h("span", { class: "bb-hint", text: canDelete ? "No caption yet" : "" }),
           canDelete ? h("button", { class: "bb-btn bb-btn-small bb-btn-ghost", type: "button", onclick: () => editCaption(p) }, icon("edit"), p.caption ? "Edit caption" : "Add caption") : null),

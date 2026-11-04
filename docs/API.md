@@ -46,7 +46,7 @@ Request: `{}`
   "fellows": [ { "id": "f0…01", "name": "Ada Okafor", "email": "…", "phone": "…", "photo_url": null, "role": "fellow" }, … ],
   "events": [ <Event>, … ],            // all events incl. cancelled (cancelled:true), ordered by starts_at
   "photos": [ <Photo>, … ],            // status 'ok' for everyone + my own 'pending' inbound photos, newest first
-  "inbound": { "slackChannel": "#cohort-photos", "smsNumber": "+1415…" },
+  "inbound": { "slackChannel": "#cohort-photos", "smsNumber": "+1415…", "email": "photos@…", "contactUrl": "/bonding/contact.vcf", "autoPost": false },
   "serverTime": "2026-11-04T08:43:09.607Z"
 }
 ```

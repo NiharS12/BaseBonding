@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS bb_photos (
   height       INTEGER,
   caption      TEXT,
   taken_at     TEXT,                         -- when the photo was taken (EXIF DateTimeOriginal, read by the client); NULL = unknown
-  source       TEXT NOT NULL DEFAULT 'app' CHECK (source IN ('app','slack','sms')),
+  source       TEXT NOT NULL DEFAULT 'app' CHECK (source IN ('app','slack','sms','email')),
   status       TEXT NOT NULL DEFAULT 'ok'  CHECK (status IN ('ok','pending')),
   created_at   TEXT NOT NULL
 );
@@ -120,7 +120,7 @@ CREATE INDEX IF NOT EXISTS bb_comments_fellow ON bb_comments (fellow_id, created
 -- Who is who on Slack / SMS. Filled automatically (email / phone match) or by the
 -- "reply with your Pulse email" flow.
 CREATE TABLE IF NOT EXISTS bb_inbound_identities (
-  channel     TEXT NOT NULL CHECK (channel IN ('slack','sms')),
+  channel     TEXT NOT NULL CHECK (channel IN ('slack','sms','email')),
   external_id TEXT NOT NULL,                 -- Slack user id (U…) or E.164 phone
   fellow_id   TEXT NOT NULL REFERENCES bb_fellows(id),
   created_at  TEXT NOT NULL,

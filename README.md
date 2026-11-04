@@ -23,7 +23,7 @@ BasecampBonding.mount(el, { api, qrBase })
 - Cohort album, one album per event, and a "Tagged" view of every photo you're in. Tag people, react, comment, caption, move a photo between albums, delete your own (hosts can remove from their event).
 - Originals are stored untouched (up to 25 MB) with a 400 px thumb for the grid. The time the photo was taken is read from EXIF on upload, albums sort by it, and downloads carry the caption (EXIF + IPTC, what the Photos app shows as Caption) and the taken-date back into the file, without re-encoding a pixel.
 - Download the original from the lightbox, or "Download all" / "Download · N new" (everything added since your last download of that album) per album. On phones the Web Share API hands the files to the share sheet, where "Save Image" puts them straight into the Photos library; laptops get a zip.
-- Send photos in from Slack (post in the cohort channel, add `#event-name` to file it) or by text (Twilio MMS). They land in the sender's review list (with a one-tap "Post all"), or go straight into the album when the fellow turns on "Post mine automatically".
+- Send photos in from your phone: Slack (post in the cohort channel), email (Cloudflare Email Routing, free), or text (a Twilio number, or a free Google Voice number that forwards MMS to the email address). "Save the contact" shows a vCard QR and sms:/mailto: links, so on iPhone or Android it becomes Share → Messages or Mail → Basecamp Bonding Photos. Add `#event-name` to file it under an event. They land in the sender's review list (with a one-tap "Post all"), or go straight into the album when the fellow turns on "Post mine automatically".
 
 **Look**: Pulse's light theme and Poppins, white cards, one honey-mustard accent, bottom sheets on phones, the same avatar style and roster as the Connect tab.
 
@@ -75,4 +75,4 @@ See [pulse-adapter/index.html.patch.md](pulse-adapter/index.html.patch.md). In s
 
 ## Status
 
-Verified locally: the whole module against the mock and against the Worker (events, RSVP, reactions, comments, attendance window, host confirm, QR and passcode check-in, late claims, uploads with thumbs, albums, tagging, captions, downloads with metadata, inbound webhooks with valid signatures). Not yet exercised: real Slack / Twilio traffic (needs the app credentials, see `docs/INBOUND.md`), the Cloudflare Images binding for mid-size renditions, and "Save to Photos" on a physical iPhone.
+Verified locally: the whole module against the mock and against the Worker (events, RSVP, reactions, comments, attendance window, host confirm, QR and passcode check-in, late claims, uploads with thumbs, albums, tagging, captions, downloads with metadata, inbound webhooks with valid signatures). Not yet exercised: real Slack / Twilio / Email Routing traffic (needs the app credentials, see `docs/INBOUND.md`), the Cloudflare Images binding for mid-size renditions, and "Save to Photos" on a physical iPhone.

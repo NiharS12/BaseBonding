@@ -194,7 +194,7 @@ export async function load({ env, me }) {
     fellows,
     events,
     photos,
-    inbound: { slackChannel: env.INBOUND_SLACK_CHANNEL || '', smsNumber: env.INBOUND_SMS_NUMBER || '', autoPost: !!(await q(env, 'SELECT inbound_auto FROM bb_fellows WHERE id = ?1', me.id).first())?.inbound_auto },
+    inbound: { slackChannel: env.INBOUND_SLACK_CHANNEL || '', smsNumber: env.INBOUND_SMS_NUMBER || '', email: env.INBOUND_EMAIL || '', contactUrl: '/bonding/contact.vcf', autoPost: !!(await q(env, 'SELECT inbound_auto FROM bb_fellows WHERE id = ?1', me.id).first())?.inbound_auto },
     serverTime: nowIso(),
   };
 }

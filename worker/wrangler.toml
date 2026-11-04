@@ -23,7 +23,8 @@ not_found_handling = "single-page-application"
 [vars]
 # Shown in the module's "Send photos from Slack or text" card (api.load().inbound).
 INBOUND_SLACK_CHANNEL = "#cohort-photos"
-INBOUND_SMS_NUMBER = ""          # e.g. "+14155550123" once a Twilio number is bought
+INBOUND_SMS_NUMBER = ""          # e.g. "+14155550123": a Twilio number, or a free Google Voice number that forwards MMS to INBOUND_EMAIL
+INBOUND_EMAIL = ""               # e.g. "photos@basecamppulse.com": a Cloudflare Email Routing address pointed at this Worker (free)
 
 [[d1_databases]]
 binding = "DB"

@@ -8,6 +8,7 @@
 // bbload auto-accepts after 24 h).
 
 import { ApiError, json, uuid, nowIso, slugify, normalizePhone, extFromType, hmac, timingSafeEqual, MAX_PHOTO_BYTES } from './util.js';
+import PostalMime from 'postal-mime';
 
 const SLACK_MAX_AGE = 5 * 60; // seconds
 const FUZZY_DAYS = 3;
@@ -281,4 +282,63 @@ export async function handleTwilio(request, env) {
   }
   if (!stored) return twiml("Sorry, I couldn't save that photo. Try again?");
   return twiml(`Got ${stored} photo${stored === 1 ? '' : 's'} → ${route.label}. ${inboundNote(await inboundAuto(env, fellow.id))}`);
+}
+
+/* ───────────────────────────── email (Cloudflare Email Routing) ────────────────
+   Free inbound channel. Fellows "Share → Mail" photos to INBOUND_EMAIL from any phone, and a free
+   Google Voice number can forward texted photos (MMS) to the same address, so plain texting works
+   with no Twilio subscription. Sender → fellow: the roster email, or (for Google Voice forwards)
+   the phone number in the subject ("New MMS from (415) 555-0199") matched against the roster. */
+
+const GV_RE = /(?:from|text message from|MMS from)\s*:?\s*\+?(\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})/i;
+const GV_ADDR_RE = /\+?(\d{10,11})(?:\.\d+)?@txt\.voice\.google\.com/i;
+
+function emailCaption(email, isGv) {
+  const subject = String(email.subject || '').replace(/^(re|fwd?|fw):\s*/i, '').trim();
+  const text = String(email.text || '').replace(/\r/g, '');
+  if (isGv) {
+    // Google Voice puts the message text first, then its own footer.
+    const body = text.split(/\n(?:YOUR ACCOUNT|To respond to this text message|https:\/\/voice\.google\.com)/i)[0]
+      .split('\n').map((l) => l.trim()).filter((l) => l && !/^(From|Sent|To|Subject|Date):/i.test(l) && !/^-+\s*Forwarded message/i.test(l));
+    return body[0] || '';
+  }
+  if (subject && !/^new (mms|text)/i.test(subject)) return subject;
+  return (text.split('\n').map((l) => l.trim()).find((l) => l && !/^(From|Sent|To|Subject|Date):/i.test(l)) || '');
+}
+
+export async function handleEmail(message, env, ctx) {
+  const email = await PostalMime.parse(message.raw);
+  const fromAddr = String(message.from || (email.from && email.from.address) || '').toLowerCase();
+  const raw = `${email.subject || ''}\n${email.text || ''}\n${email.html || ''}`;
+  const gvAddr = GV_ADDR_RE.exec(fromAddr) || GV_ADDR_RE.exec(raw);
+  const gvSubject = GV_RE.exec(email.subject || '') || GV_RE.exec(email.text || '');
+  const isGv = !!(gvAddr || /voice\.google\.com/i.test(raw));
+
+  let fellow = null, channel = 'email', externalId = fromAddr;
+  if (isGv) {
+    const phone = gvAddr ? gvAddr[1] : gvSubject ? gvSubject[1] : null;
+    if (phone) { channel = 'sms'; externalId = normalizePhone(phone) || phone; fellow = await identity(env, 'sms', externalId) || await fellowByPhone(env, phone); }
+  }
+  if (!fellow) fellow = await identity(env, 'email', fromAddr) || await fellowByEmail(env, fromAddr);
+  if (!fellow) {
+    // The bounce is the reply: no send_email binding needed.
+    message.setReject(`Basecamp Bonding doesn't know this sender. Send from the email on the Pulse roster, or ask a facilitator to link ${externalId}.`);
+    return;
+  }
+  if (channel === 'sms') await remember(env, 'sms', externalId, fellow.id);
+
+  const images = (email.attachments || []).filter((a) => /^image\//i.test(a.mimeType || '') && a.content);
+  if (!images.length) { message.setReject('No photo attached. Attach images (any size up to 25 MB each) and add #event-name to the subject to pick an album.'); return; }
+
+  const route = await routeCaption(env, emailCaption(email, isGv));
+  let stored = 0;
+  for (const a of images) {
+    const bytes = new Uint8Array(a.content);
+    if (!bytes.length || bytes.length > MAX_PHOTO_BYTES) continue;
+    try {
+      await storeInbound(env, { fellowId: fellow.id, eventId: route.eventId, caption: route.caption, bytes, contentType: a.mimeType, filename: a.filename || `mail-${Date.now()}-${stored + 1}.${extFromType(a.mimeType)}`, source: channel === 'sms' ? 'sms' : 'email' });
+      stored++;
+    } catch (e) { console.warn('email photo failed', a.filename, e.message || e); }
+  }
+  console.log(`email: ${stored} photo(s) from ${fellow.name} → ${route.label} (${channel})`);
 }

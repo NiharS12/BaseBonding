@@ -100,7 +100,7 @@
     ph(9, null, "f2", ["f1"], "app", t - 10 * D);
     photos[0].reactions = [{ emoji: "❤️", fellow_id: "f2" }, { emoji: "🔥", fellow_id: "f4" }];
     photos[0].comments = [{ id: uid(), fellow_id: "f2", text: "Frame this one", created_at: t - 3 * D, reactions: [] }];
-    return { fellows: FELLOWS, events: events, photos: photos, inbound: { slackChannel: "#cohort-photos", smsNumber: "(415) 555-0199" }, autoPost: {} };
+    return { fellows: FELLOWS, events: events, photos: photos, inbound: { slackChannel: "#cohort-photos", smsNumber: "+14155550199", email: "photos@basecamppulse.com", contactUrl: null }, autoPost: {} };
   }
 
   function create(opts) {
