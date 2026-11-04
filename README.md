@@ -2,6 +2,41 @@
 
 A fifth tab for [Basecamp Pulse](https://basecamppulse.com): a shared calendar for cohort plans and a shared photo album for the memories, so sharing a plan or a picture is as simple as sending one text.
 
+## Scope change (November 2026): hidden until the reveal
+
+> This section is the plan of record for the next build. The rest of the README describes what exists today; it is updated as each piece lands.
+
+The photos fellows send during Basecamp no longer appear as they arrive. They are collected, tagged and held back, then released all at once as a celebration after the program ends, in the Bonding tab and in a Claude Corps Google Drive. Until then the tab shows a countdown.
+
+### What fellows see
+
+- **Send photos exactly as today**: Add photos in the tab, or text, email or Slack them to Plans Bot. Nothing changes about how a photo gets in.
+- **Nothing shows yet.** Instead of albums, the Photos section is a countdown to the reveal: days, hours, minutes, seconds, how many photos are waiting, how many events they cover, and how many you have sent. No thumbnails, not even your own; you get a "Received · N photos waiting" confirmation.
+- **Tag people with @mentions.** Put `@johnny` or `@annie o` in the caption, the text, the email subject or the Slack message and the photo is tagged with that fellow. Spelling is matched to the roster name from the Connect tab, so `@jonny` still finds Johnny Appleseed. If two fellows share a first name, add a last initial (`@sam r`); otherwise an admin resolves it.
+- **Albums are picked for you.** `#event-name` still works; without it, the photo's date, time and location (and who you RSVP'd with) decide which event album it belongs to. Everything else goes to the cohort album.
+- **The reveal.** At the release moment the countdown becomes the album: cohort, one album per event, and the Tagged view, with downloads, reactions and comments as before. You can still tag yourself or anyone else in any photo afterwards, and untag yourself.
+- **Your Drive folder.** Every released photo is filed in a Claude Corps Shared Drive. You get view access to `Cohort/` (everything), `Events/<event>/` (every event), and a private `People/<your name>/` folder with the photos you are tagged in plus every photo from the events you attended. The Drive share arrives by email at your roster address.
+
+### What admins do
+
+Admins are Nihar (the builder) and Claude Corps staff: anyone whose roster role is `staff`, plus ids listed in the `ADMIN_FELLOW_IDS` setting. Admins see an **Admin** bar at the top of the tab and a panel with four parts:
+
+1. **Reveal**: set or clear the release date and time, or press **Release now**. The release also runs by itself at the set time. Admins can release one event's album, or a single photo, early.
+2. **Hidden photos**: every photo waiting, with the album and people tags the app chose and how it chose them (hashtag, time, GPS, RSVP, @mention, Slack mention). A **Needs review** list collects ambiguous mentions ("@sam could be Sam Rivera or Sam Okoye") and low-confidence album picks, with one-tap fixes and suggested tags from the event's attendee list. Any photo can be **held** (never released) or deleted.
+3. **Events**: how many photos each event is holding, with a per-event release.
+4. **Drive**: sync status, retries, "share folders again" for new fellows, and a per-fellow Google email override for anyone whose roster email is not a Google account.
+
+Day to day this is light: set the date once, glance at Needs review now and then, and let the scheduled release do the rest. Either Nihar or a Claude Corps admin can do all of it from a phone.
+
+### Constraints to know about
+
+- **Google Workspace is required** for the Drive filing: photos live in a Shared Drive that a Google service account can write to. Each fellow needs a Google account on their roster email (or an admin sets another email for them) to open their folder. `People/<name>/` folders hold shortcuts to the single copy in `Cohort/`, so the Cohort folder must stay shared with the whole cohort.
+- **No face recognition.** People are tagged from @mentions (and Slack's native @user mentions), manual tags, and, for Drive, event attendance. A photo nobody mentions anyone in is tagged by nobody until someone tags it after the reveal.
+- **Texted photos** stay carrier-compressed; after the reveal the sender can swap in the original as today. Texts and emails get no reply, so a fellow's only pre-reveal feedback is the "you've sent N" line in the tab (Slack does reply).
+- **Hidden means hidden.** Photo files are served only with a signed link that expires in 24 hours and is only handed out for released photos (or to admins), so a hidden photo cannot be fetched by guessing its address. A photo held after someone loaded the tab can stay fetchable for up to a day.
+- **Release time** is stored in UTC and shown in the cohort's time zone (`PLAN_TIMEZONE`). Photos that arrive after the reveal show up immediately, as today; there is no second countdown.
+- **For the Pulse merge**: a scheduled (cron) handler, two new secrets (`PHOTO_URL_SECRET`, `GOOGLE_SERVICE_ACCOUNT_JSON`), a one-time database migration, and a real `role` from Pulse's session so staff are recognised as admins. Details in the runbook below once built.
+
 ## Why this exists
 
 The same thing kept happening in the cohort. Several plans would form at the same time for the same time, and nobody knew who was going or where they would be. Lots of pictures got taken, but they were hard to share afterwards. Several people wanted a shared album, and everyone was running low on iCloud space.
